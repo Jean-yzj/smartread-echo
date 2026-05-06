@@ -4,8 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import Tesseract from "tesseract.js";
 import {
+  BookCopy,
   BookOpen,
   Brain,
+  Check,
+  ChevronRight,
   Clock3,
   Download,
   GitBranch,
@@ -13,10 +16,13 @@ import {
   Plus,
   Quote,
   ScanText,
+  Search,
   Share2,
   Sparkles,
   Star,
+  TimerReset,
   Trophy,
+  Waves,
 } from "lucide-react";
 
 type Book = {
@@ -80,11 +86,12 @@ type BookSearchResult = {
 
 const STORAGE_KEY = "smartread-echo-state";
 const ECHO_DAYS = [1, 7, 30];
+const FOCUS_MINUTES = 25;
 const LEVELS = [
   { level: 1, label: "讀者", min: 0, unlock: "建立書櫃、閱讀計時、私人筆記" },
-  { level: 2, label: "探索者", min: 120, unlock: "書名快搜、導讀問題、分享卡" },
+  { level: 2, label: "探索者", min: 120, unlock: "書名快搜、分享卡、收藏管理" },
   { level: 3, label: "思辨家", min: 260, unlock: "回聲複習、主題整理、Notion 匯出" },
-  { level: 4, label: "架構師", min: 500, unlock: "完整知識工作流與深度追蹤" },
+  { level: 4, label: "架構師", min: 500, unlock: "完整知識圖譜與長期閱讀節奏" },
 ] as const;
 
 const demoBooks: Book[] = [
@@ -95,11 +102,22 @@ const demoBooks: Book[] = [
     isbn: "9780735211292",
     totalPages: 320,
     currentPage: 96,
-    description:
-      "從行為設計與微小改變切入，幫助讀者建立能長期維持的習慣系統。",
+    description: "用微小但可重複的行為設計，建立會自己運轉的生活系統。",
     coverImage:
-      "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=800&q=80",
+      "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80",
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 9).toISOString(),
+  },
+  {
+    id: "book-thinking",
+    title: "思考的框架",
+    author: "Shane Parrish",
+    isbn: "9780593719978",
+    totalPages: 304,
+    currentPage: 38,
+    description: "用模型與原則整理決策，讓閱讀最後會回到真實行動。",
+    coverImage:
+      "https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=900&q=80",
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4).toISOString(),
   },
 ];
 
@@ -109,8 +127,7 @@ const demoNotes: Note[] = [
     bookId: "book-atomic",
     page: 42,
     rawText: "你不會提升到目標的高度，你會跌回系統的水準。",
-    reflection:
-      "我現在的閱讀習慣不是靠意志力，而是靠晚餐後固定坐到書桌前這個系統。",
+    reflection: "我需要把閱讀固定綁在晚餐後，而不是期待自己有空才讀。",
     isFavorite: true,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(),
   },
@@ -119,10 +136,18 @@ const demoNotes: Note[] = [
     bookId: "book-atomic",
     page: 71,
     rawText: "讓好習慣顯而易見、容易執行、立即有回饋。",
-    reflection:
-      "我可以把目前要讀的書直接放在床頭，而不是放進書櫃深處。",
+    reflection: "床頭和桌面都應該只留下一本正在讀的書，降低切換成本。",
     isFavorite: false,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+  },
+  {
+    id: "note-3",
+    bookId: "book-thinking",
+    page: 16,
+    rawText: "好的框架不是替你思考，而是幫你不再遺漏重要問題。",
+    reflection: "讀商業書時，我可以固定問自己：它改變了什麼決策方式？",
+    isFavorite: true,
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString(),
   },
 ];
 
@@ -133,26 +158,40 @@ const demoSessions: Session[] = [
     minutes: 35,
     startedAt: new Date(Date.now() - 1000 * 60 * 60 * 30).toISOString(),
   },
+  {
+    id: "session-2",
+    bookId: "book-thinking",
+    minutes: 22,
+    startedAt: new Date(Date.now() - 1000 * 60 * 60 * 52).toISOString(),
+  },
 ];
 
 const sections: Array<{
   id: AppSection;
   title: string;
+  short: string;
+  description: string;
   icon: React.ReactNode;
 }> = [
   {
     id: "library",
     title: "書籍整理",
+    short: "建立書櫃",
+    description: "找書、建檔、更新閱讀進度",
     icon: <Library className="h-4 w-4" />,
   },
   {
     id: "lab",
     title: "Reading Lab",
+    short: "專注閱讀",
+    description: "計時、OCR 摘錄、整理心得",
     icon: <Clock3 className="h-4 w-4" />,
   },
   {
     id: "echo",
     title: "回聲複習",
+    short: "長期記住",
+    description: "複習、分享、輸出與升級",
     icon: <Brain className="h-4 w-4" />,
   },
 ];
@@ -182,18 +221,25 @@ function levelForInk(inkDrops: number) {
   return { level: 1, label: "讀者" };
 }
 
+function getProgress(book: Book) {
+  if (!book.totalPages) {
+    return 0;
+  }
+  return Math.min(100, Math.round((book.currentPage / book.totalPages) * 100));
+}
+
 function createPreReadGuide(book: Book) {
   const text = `${book.title} ${book.description}`.toLowerCase();
   const audience = text.includes("習慣")
-    ? "適合正想建立穩定閱讀、工作或生活流程的人。"
-    : text.includes("思維") || text.includes("策略")
-      ? "適合想提升判斷力、決策品質與架構思考的讀者。"
-      : "適合想把閱讀變成可執行行動，而不只停留在摘錄的人。";
+    ? "適合想把閱讀真的落地成習慣的人。"
+    : text.includes("思維") || text.includes("框架")
+      ? "適合想提升判斷力與架構思考的人。"
+      : "適合想把閱讀從收藏變成內化的人。";
 
   const questions = [
-    "你希望這本書幫你解決哪一個正在反覆發生的問題？",
-    "讀完這本書後，你最想立刻改變的一個行為是什麼？",
-    "如果只能留下 3 條可執行原則，你希望它們是哪些？",
+    "你希望這本書幫你修正哪個正在重複發生的問題？",
+    "這次閱讀你最想帶走的一個行動是什麼？",
+    "如果最後只能留下三個關鍵詞，會是哪三個？",
   ];
 
   return { audience, questions };
@@ -202,7 +248,7 @@ function createPreReadGuide(book: Book) {
 function buildEchoPrompt(note: Note, book?: Book) {
   const keyword =
     note.reflection.split(/[，。、；：「」\s]/).find(Boolean) || "這個想法";
-  return `你上次在《${book?.title ?? "這本書"}》提到「${keyword}」，這週有沒有新的例子或行動可以呼應它？`;
+  return `你上次在《${book?.title ?? "這本書"}》寫下「${keyword}」，現在能舉出一個新的例子嗎？`;
 }
 
 function formatDate(dateString: string) {
@@ -229,6 +275,7 @@ function computeStreakDays(sessions: Session[]) {
     const current = new Date(`${uniqueDays[index]}T00:00:00`);
     const delta =
       (previous.getTime() - current.getTime()) / (24 * 60 * 60 * 1000);
+
     if (delta === 1) {
       streak += 1;
     } else {
@@ -248,10 +295,10 @@ function buildNotionExport(books: Book[], notes: Note[]) {
   return books
     .map((book) => {
       const relatedNotes = notes.filter((note) => note.bookId === book.id);
-      return `# ${book.title}\n作者：${book.author || "未填寫"}\n進度：${book.currentPage}/${book.totalPages || "?"}\n\n${relatedNotes
+      return `# ${book.title}\n作者：${book.author || "未填寫"}\nISBN：${book.isbn || "未填寫"}\n進度：${book.currentPage}/${book.totalPages || "?"}\n\n${relatedNotes
         .map(
           (note) =>
-            `## 第 ${note.page || "?"} 頁\n摘錄：${note.rawText}\n心得：${note.reflection || "未填寫"}\n`,
+            `## 第 ${note.page || "?"} 頁\n摘錄：${note.rawText}\n心得：${note.reflection || "未填寫"}\n收藏：${note.isFavorite ? "是" : "否"}\n`,
         )
         .join("\n")}`;
     })
@@ -311,6 +358,7 @@ function AppShell() {
   const [sessions, setSessions] = useState<Session[]>(demoSessions);
   const [completedEchoes, setCompletedEchoes] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const [referenceNow] = useState(() => Date.now());
 
   const [bookForm, setBookForm] = useState<BookForm>({
     title: "",
@@ -329,28 +377,21 @@ function AppShell() {
     imageDataUrl: "",
   });
 
-  const [isbnStatus, setIsbnStatus] = useState("輸入 ISBN 後可自動帶入書籍資料");
-  const [ocrStatus, setOcrStatus] = useState(
-    "上傳書頁照片後，系統會在瀏覽器內執行 OCR",
-  );
+  const [status, setStatus] = useState("");
   const [bookSearchQuery, setBookSearchQuery] = useState("");
-  const [bookSearchStatus, setBookSearchStatus] = useState("");
   const [bookSearchResults, setBookSearchResults] = useState<BookSearchResult[]>([]);
   const [bookSearchLoading, setBookSearchLoading] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [shareStatus, setShareStatus] = useState("");
-  const [notionStatus, setNotionStatus] = useState("");
-  const [backupStatus, setBackupStatus] = useState("");
   const [readingBookId, setReadingBookId] = useState(demoBooks[0]?.id ?? "");
-  const [timerSeconds, setTimerSeconds] = useState(25 * 60);
+  const [selectedBookId, setSelectedBookId] = useState(demoBooks[0]?.id ?? "");
+  const [timerSeconds, setTimerSeconds] = useState(FOCUS_MINUTES * 60);
   const [timerRunning, setTimerRunning] = useState(false);
-  const [referenceNow] = useState(() => Date.now());
+  const [soundOn, setSoundOn] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const noiseRef = useRef<AudioBufferSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const shareCardRef = useRef<HTMLDivElement | null>(null);
-  const [soundOn, setSoundOn] = useState(false);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -367,6 +408,7 @@ function AppShell() {
         setSessions(parsed.sessions);
         setCompletedEchoes(parsed.completedEchoes);
         setReadingBookId(parsed.books[0]?.id ?? "");
+        setSelectedBookId(parsed.books[0]?.id ?? "");
         setNoteForm((current) => ({
           ...current,
           bookId: parsed.books[0]?.id ?? "",
@@ -441,18 +483,7 @@ function AppShell() {
     0,
   );
   const streakDays = computeStreakDays(sessions);
-  const averageProgress =
-    books.length > 0
-      ? Math.round(
-          (books.reduce(
-            (sum, book) =>
-              sum + (book.totalPages ? book.currentPage / book.totalPages : 0),
-            0,
-          ) /
-            books.length) *
-            100,
-        )
-      : 0;
+  const favoriteNotes = notes.filter((note) => note.isFavorite);
 
   const dueEchoes = useMemo(() => {
     return notes
@@ -478,18 +509,27 @@ function AppShell() {
       .sort((a, b) => a.day - b.day);
   }, [booksById, completedEchoes, notes, referenceNow]);
 
-  const favoriteNotes = notes.filter((note) => note.isFavorite);
-  const selectedBook = books.find((book) => book.id === readingBookId) ?? books[0];
-  const guide = selectedBook ? createPreReadGuide(selectedBook) : null;
-  const recentSessions = sessions.slice(0, 4);
+  const selectedBook =
+    books.find((book) => book.id === selectedBookId) ?? books[0] ?? null;
+  const readingBook =
+    books.find((book) => book.id === readingBookId) ?? books[0] ?? null;
+  const readingGuide = readingBook ? createPreReadGuide(readingBook) : null;
+  const recentNotes = [...notes].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const recentSessions = sessions.slice(0, 5);
   const conceptGraph = extractConcepts(notes, booksById);
   const currentSection = sections.find(
     (section) => section.id === activeSection,
   )!;
+  const averageProgress =
+    books.length > 0
+      ? Math.round(
+          (books.reduce((sum, book) => sum + getProgress(book), 0) / books.length) *
+            100,
+        ) / 100
+      : 0;
 
   async function searchBooksByTitle(keyword: string) {
     setBookSearchLoading(true);
-    setBookSearchStatus("搜尋中...");
 
     try {
       const response = await fetch(
@@ -513,7 +553,6 @@ function AppShell() {
 
       if (!data.items?.length) {
         setBookSearchResults([]);
-        setBookSearchStatus("找不到結果");
         setBookSearchLoading(false);
         return;
       }
@@ -537,11 +576,11 @@ function AppShell() {
       });
 
       setBookSearchResults(results);
-      setBookSearchStatus("");
       setBookSearchLoading(false);
     } catch {
-      setBookSearchStatus("搜尋失敗");
+      setBookSearchResults([]);
       setBookSearchLoading(false);
+      setStatus("書名搜尋失敗，請稍後再試");
     }
   }
 
@@ -551,13 +590,11 @@ function AppShell() {
     const timeoutId = window.setTimeout(() => {
       if (!keyword) {
         setBookSearchResults([]);
-        setBookSearchStatus("");
         setBookSearchLoading(false);
         return;
       }
-
       void searchBooksByTitle(keyword);
-    }, 350);
+    }, 320);
 
     return () => window.clearTimeout(timeoutId);
   }, [bookSearchQuery]);
@@ -573,13 +610,12 @@ function AppShell() {
     });
     setBookSearchResults([]);
     setBookSearchQuery(result.title);
-    setBookSearchStatus("已帶入書籍資料");
-    setBookSearchLoading(false);
+    setStatus("已帶入書籍資料");
   }
 
   function handleAddBook() {
     if (!bookForm.title.trim()) {
-      setIsbnStatus("至少需要輸入書名");
+      setStatus("請先輸入書名");
       return;
     }
 
@@ -597,6 +633,7 @@ function AppShell() {
 
     setBooks((current) => [nextBook, ...current]);
     setReadingBookId(nextBook.id);
+    setSelectedBookId(nextBook.id);
     setNoteForm({
       bookId: nextBook.id,
       page: "",
@@ -613,11 +650,9 @@ function AppShell() {
       description: "",
       coverImage: "",
     });
-    setIsbnStatus("書籍已加入書櫃");
     setBookSearchQuery("");
     setBookSearchResults([]);
-    setBookSearchStatus("");
-    setActiveSection("library");
+    setStatus("書籍已加入書櫃");
   }
 
   function updateProgress(bookId: string, currentPage: number) {
@@ -637,7 +672,7 @@ function AppShell() {
   }
 
   async function runOcr(file: File) {
-    setOcrStatus("辨識中，第一次使用會先下載語言模型...");
+    setStatus("OCR 辨識中，第一次使用會先下載語言模型");
     setNoteForm((current) => ({
       ...current,
       imageDataUrl: URL.createObjectURL(file),
@@ -649,18 +684,19 @@ function AppShell() {
         ...current,
         rawText: result.data.text.trim(),
       }));
-      setOcrStatus("OCR 完成，請先校對文字再儲存");
+      setStatus("OCR 完成，請先校對文字");
     } catch {
-      setOcrStatus("OCR 暫時失敗，仍然可以手動貼上摘錄內容");
+      setStatus("OCR 失敗，你仍然可以手動貼上摘錄");
     }
   }
 
   function saveNote() {
     if (!noteForm.bookId || !noteForm.rawText.trim()) {
-      setOcrStatus("請先選書，並輸入或辨識出一段文字");
+      setStatus("請先選書並輸入摘錄");
       return;
     }
 
+    const previous = notes.find((note) => note.id === editingNoteId);
     const nextNote: Note = {
       id: editingNoteId ?? uid("note"),
       bookId: noteForm.bookId,
@@ -669,9 +705,7 @@ function AppShell() {
       reflection: noteForm.reflection.trim(),
       isFavorite: noteForm.isFavorite,
       imageDataUrl: noteForm.imageDataUrl,
-      createdAt:
-        notes.find((note) => note.id === editingNoteId)?.createdAt ??
-        new Date().toISOString(),
+      createdAt: previous?.createdAt ?? new Date().toISOString(),
     };
 
     setNotes((current) =>
@@ -688,11 +722,14 @@ function AppShell() {
       imageDataUrl: "",
     }));
     setEditingNoteId(null);
-    setOcrStatus(editingNoteId ? "筆記已更新" : "筆記已儲存");
+    setStatus(editingNoteId ? "筆記已更新" : "筆記已儲存");
   }
 
   function editNote(note: Note) {
     setEditingNoteId(note.id);
+    setActiveSection("lab");
+    setReadingBookId(note.bookId);
+    setSelectedBookId(note.bookId);
     setNoteForm({
       bookId: note.bookId,
       page: String(note.page || ""),
@@ -701,7 +738,7 @@ function AppShell() {
       isFavorite: note.isFavorite,
       imageDataUrl: note.imageDataUrl ?? "",
     });
-    setActiveSection("lab");
+    setStatus("已載入筆記");
   }
 
   function deleteNote(noteId: string) {
@@ -709,22 +746,33 @@ function AppShell() {
     if (editingNoteId === noteId) {
       setEditingNoteId(null);
     }
+    setStatus("筆記已刪除");
   }
 
   function deleteBook(bookId: string) {
+    const fallbackBook = books.find((book) => book.id !== bookId) ?? null;
+
     setBooks((current) => current.filter((book) => book.id !== bookId));
     setNotes((current) => current.filter((note) => note.bookId !== bookId));
     setSessions((current) =>
       current.filter((session) => session.bookId !== bookId),
     );
+
     if (readingBookId === bookId) {
-      const fallback = books.find((book) => book.id !== bookId);
-      setReadingBookId(fallback?.id ?? "");
+      setReadingBookId(fallbackBook?.id ?? "");
     }
+    if (selectedBookId === bookId) {
+      setSelectedBookId(fallbackBook?.id ?? "");
+    }
+    if (noteForm.bookId === bookId) {
+      setNoteForm((current) => ({ ...current, bookId: fallbackBook?.id ?? "" }));
+    }
+    setStatus("書籍已移出書櫃");
   }
 
   function completeEcho(echoId: string) {
     setCompletedEchoes((current) => [...current, echoId]);
+    setStatus("已完成本次回聲");
   }
 
   async function shareFavorite(note: Note) {
@@ -736,20 +784,20 @@ function AppShell() {
           title: booksById[note.bookId]?.title ?? "SmartRead Echo",
           text,
         });
-        setShareStatus("已開啟分享");
+        setStatus("已開啟分享");
         return;
       }
 
       await navigator.clipboard.writeText(text);
-      setShareStatus("分享文案已複製");
+      setStatus("分享文案已複製");
     } catch {
-      setShareStatus("分享失敗");
+      setStatus("分享失敗");
     }
   }
 
   async function downloadShareCard() {
     if (!shareCardRef.current || !favoriteNotes[0]) {
-      setShareStatus("沒有可下載的卡片");
+      setStatus("沒有可下載的卡片");
       return;
     }
 
@@ -762,9 +810,9 @@ function AppShell() {
       link.href = dataUrl;
       link.download = `${booksById[favoriteNotes[0].bookId]?.title ?? "smartread-echo"}-card.png`;
       link.click();
-      setShareStatus("卡片已下載");
+      setStatus("分享卡已下載");
     } catch {
-      setShareStatus("下載失敗");
+      setStatus("下載失敗");
     }
   }
 
@@ -772,7 +820,7 @@ function AppShell() {
     const markdown = buildNotionExport(books, notes);
     try {
       await navigator.clipboard.writeText(markdown);
-      setNotionStatus("Notion 匯入內容已複製");
+      setStatus("Notion 內容已複製");
     } catch {
       const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -781,18 +829,17 @@ function AppShell() {
       link.download = "smartread-echo-notion-export.md";
       link.click();
       URL.revokeObjectURL(url);
-      setNotionStatus("已下載 Notion 匯入檔");
+      setStatus("Notion 匯出檔已下載");
     }
   }
 
   async function exportBackup() {
-    const payload = JSON.stringify(
-      { books, notes, sessions, completedEchoes },
-      null,
-      2,
-    );
-
     try {
+      const payload = JSON.stringify(
+        { books, notes, sessions, completedEchoes },
+        null,
+        2,
+      );
       const blob = new Blob([payload], {
         type: "application/json;charset=utf-8",
       });
@@ -802,9 +849,9 @@ function AppShell() {
       link.download = "smartread-echo-backup.json";
       link.click();
       URL.revokeObjectURL(url);
-      setBackupStatus("備份已下載");
+      setStatus("完整備份已下載");
     } catch {
-      setBackupStatus("備份失敗");
+      setStatus("備份失敗");
     }
   }
 
@@ -845,10 +892,11 @@ function AppShell() {
   }
 
   function finishSession() {
-    const elapsed = 25 * 60 - timerSeconds;
+    const elapsed = FOCUS_MINUTES * 60 - timerSeconds;
     const minutes = Math.max(1, Math.round(elapsed / 60));
 
     if (!readingBookId) {
+      setStatus("請先選擇正在閱讀的書");
       return;
     }
 
@@ -861,501 +909,570 @@ function AppShell() {
       },
       ...current,
     ]);
-    setTimerSeconds(25 * 60);
+    setTimerSeconds(FOCUS_MINUTES * 60);
     setTimerRunning(false);
+    setStatus("本次閱讀已記錄");
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(199,144,88,0.18),_transparent_28%),linear-gradient(180deg,#f7efe2_0%,#f4f0ea_40%,#e7e3dc_100%)] text-stone-900">
-      <main className="mx-auto grid min-h-screen w-full max-w-[1600px] gap-5 px-4 py-4 lg:grid-cols-[290px_minmax(0,1fr)] lg:px-6 lg:py-6">
-        <aside className="rounded-[2rem] border border-white/60 bg-[#fdfaf4]/92 p-5 shadow-[0_24px_80px_rgba(72,44,18,0.12)] backdrop-blur lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
-          <div className="flex h-full flex-col">
-            <div className="space-y-4">
-              <div className="inline-flex items-center gap-2 rounded-full border border-amber-950/10 bg-white/70 px-3 py-1 text-xs font-medium tracking-[0.24em] text-amber-950/70 uppercase">
-                <Sparkles className="h-3.5 w-3.5" />
-                SmartRead Echo
-              </div>
-              <div>
-                <h1 className="text-3xl leading-tight font-semibold">
-                  SmartRead Echo
-                </h1>
-              </div>
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,190,114,0.26),_transparent_25%),radial-gradient(circle_at_bottom_right,_rgba(83,139,122,0.16),_transparent_26%),linear-gradient(180deg,#f7f3ea_0%,#efe7d8_45%,#e9e0d4_100%)] text-[var(--ink-strong)]">
+      <main className="mx-auto grid min-h-screen w-full max-w-[1560px] gap-5 px-4 py-4 lg:grid-cols-[300px_minmax(0,1fr)] lg:px-6 lg:py-6">
+        <aside className="glass-panel flex flex-col gap-5 rounded-[2rem] p-5 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-[11px] font-bold tracking-[0.22em] text-[var(--ink-soft)] uppercase">
+              <Sparkles className="h-3.5 w-3.5" />
+              SmartRead Echo
             </div>
+            <div>
+              <h1 className="font-serif-display text-[2rem] leading-tight">
+                把閱讀變成會回來的記憶
+              </h1>
+              <p className="mt-2 text-sm text-[var(--ink-soft)]">
+                找到一本書，留下自己的話，然後在對的時間把它想起來。
+              </p>
+            </div>
+          </div>
 
-            <nav className="mt-6 grid gap-3">
-              {sections.map((section) => {
-                const active = section.id === activeSection;
-                return (
-                  <button
-                    key={section.id}
-                    className={`app-nav-item ${active ? "app-nav-item-active" : ""}`}
-                    onClick={() => setActiveSection(section.id)}
-                  >
-                    <span className="app-nav-icon">{section.icon}</span>
-                    <span className="min-w-0 text-left">
-                      <span className="block text-sm font-semibold">{section.title}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div className="mt-6 grid gap-3 rounded-[1.6rem] border border-stone-200/80 bg-[linear-gradient(145deg,#fffdfa,#efe2cf)] p-4 shadow-inner">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs tracking-[0.24em] text-stone-500 uppercase">
-                    Ink Drops
-                  </p>
-                  <div className="mt-2 text-3xl font-semibold">{inkDrops}</div>
-                </div>
-                <div className="rounded-2xl bg-stone-900 px-3 py-2 text-xs text-stone-50">
+          <div className="rounded-[1.7rem] bg-[linear-gradient(150deg,rgba(45,38,32,0.95),rgba(131,86,45,0.88))] p-4 text-white shadow-[0_24px_50px_rgba(62,42,19,0.24)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] tracking-[0.22em] text-white/70 uppercase">
+                  今日節奏
+                </p>
+                <div className="mt-2 text-3xl font-semibold">{inkDrops}</div>
+                <div className="mt-1 text-sm text-white/76">
                   Lv.{level.level} {level.label}
                 </div>
               </div>
-              <div className="h-3 overflow-hidden rounded-full bg-stone-200">
-                <div
-                  className="h-full rounded-full bg-[linear-gradient(90deg,#8d5b2b,#c48c53,#e0b37b)]"
-                  style={{ width: `${Math.min(100, (inkDrops / 500) * 100)}%` }}
-                />
-              </div>
-              <div className="grid gap-2 text-sm text-stone-600">
-                <span>{books.length} 本書</span>
-                <span>{totalReadingMinutes} 分鐘閱讀</span>
-                <span>{dueEchoes.length} 則待複習回聲</span>
+              <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2 text-sm">
+                {streakDays} 天
               </div>
             </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/12">
+              <div
+                className="h-full rounded-full bg-[linear-gradient(90deg,#ffe0a8,#ffd18f,#f7b85f)]"
+                style={{
+                  width: `${nextLevelConfig ? ((inkDrops - currentLevelConfig.min) / (nextLevelConfig.min - currentLevelConfig.min)) * 100 : 100}%`,
+                }}
+              />
+            </div>
+            <div className="mt-3 text-xs text-white/72">
+              {nextLevelConfig
+                ? `距離 Lv.${nextLevelConfig.level} 還差 ${Math.max(0, nextLevelConfig.min - inkDrops)} 點`
+                : "目前已達最高等級"}
+            </div>
+          </div>
 
-            <div className="mt-auto hidden rounded-[1.5rem] border border-stone-200 bg-white/70 p-4 lg:block">
-                <div className="flex items-center gap-2 text-sm font-medium text-stone-700">
-                  <Trophy className="h-4 w-4" />
-                  今日總覽
-                </div>
-              <div className="mt-4 grid gap-3">
-                <MetricMini label="平均進度" value={`${averageProgress}%`} />
-                <MetricMini label="收藏金句" value={`${favoriteNotes.length} 則`} />
-                <MetricMini label="連續閱讀" value={`${streakDays} 天`} />
-                <MetricMini
-                  label="回聲完成"
-                  value={`${completedEchoes.length} 次`}
-                />
-              </div>
-            </div>
+          <nav className="grid gap-3">
+            {sections.map((section) => {
+              const active = section.id === activeSection;
+              return (
+                <button
+                  key={section.id}
+                  className={`sidebar-link ${active ? "sidebar-link-active" : ""}`}
+                  onClick={() => setActiveSection(section.id)}
+                >
+                  <span className="sidebar-icon">{section.icon}</span>
+                  <span className="min-w-0 text-left">
+                    <span className="block text-sm font-semibold">
+                      {section.title}
+                    </span>
+                    <span className="block text-xs text-[var(--ink-soft)]">
+                      {section.description}
+                    </span>
+                  </span>
+                  <ChevronRight className="ml-auto h-4 w-4 text-[var(--ink-soft)]" />
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="mt-auto grid gap-3 rounded-[1.6rem] border border-white/65 bg-white/68 p-4">
+            <MiniMetric label="藏書" value={`${books.length} 本`} />
+            <MiniMetric label="閱讀總時數" value={`${totalReadingMinutes} 分`} />
+            <MiniMetric label="待回聲" value={`${dueEchoes.length} 則`} />
+            <MiniMetric label="收藏金句" value={`${favoriteNotes.length} 則`} />
           </div>
         </aside>
 
         <section className="flex min-w-0 flex-col gap-5">
-          <div className="rounded-[2rem] border border-white/60 bg-[#fcfaf6]/90 p-5 shadow-[0_18px_50px_rgba(72,44,18,0.08)] md:p-6">
+          <header className="glass-panel rounded-[2rem] p-5 md:p-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <div className="flex items-center gap-2 text-sm font-medium text-amber-900">
+                <div className="inline-flex items-center gap-2 rounded-full border border-[var(--line-soft)] bg-white/72 px-3 py-1 text-xs font-semibold text-[var(--accent-ink)]">
                   {currentSection.icon}
-                  {currentSection.title}
+                  {currentSection.short}
                 </div>
-                <h2 className="mt-3 text-3xl font-semibold md:text-4xl">
+                <h2 className="mt-3 font-serif-display text-4xl leading-tight md:text-5xl">
                   {currentSection.title}
                 </h2>
+                <p className="mt-3 max-w-2xl text-sm text-[var(--ink-soft)] md:text-base">
+                  {activeSection === "library" &&
+                    "先把要讀的書放進來，讓搜尋、封面、作者和頁數自己到位。"}
+                  {activeSection === "lab" &&
+                    "在同一個工作台完成專注閱讀、OCR 摘錄和自己的反思。"}
+                  {activeSection === "echo" &&
+                    "讓你寫下的內容在 1、7、30 天後重新浮現，變成長期記憶。"}
+                </p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[420px]">
-                <MetricMini label="書櫃藏書" value={`${books.length} 本`} />
-                <MetricMini label="閱讀總時數" value={`${totalReadingMinutes} 分`} />
-                <MetricMini label="待回聲" value={`${dueEchoes.length} 則`} />
+
+              <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[520px]">
+                <HeroMetric label="平均進度" value={`${averageProgress}%`} />
+                <HeroMetric label="連續閱讀" value={`${streakDays} 天`} />
+                <HeroMetric label="回聲完成" value={`${completedEchoes.length} 次`} />
               </div>
             </div>
-          </div>
+
+            {status ? (
+              <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                <Check className="h-4 w-4" />
+                {status}
+              </div>
+            ) : null}
+          </header>
 
           <div className="grid gap-3 lg:hidden">
             {sections.map((section) => (
               <button
                 key={section.id}
-                className={`app-nav-item ${section.id === activeSection ? "app-nav-item-active" : ""}`}
+                className={`sidebar-link ${section.id === activeSection ? "sidebar-link-active" : ""}`}
                 onClick={() => setActiveSection(section.id)}
               >
-                <span className="app-nav-icon">{section.icon}</span>
+                <span className="sidebar-icon">{section.icon}</span>
                 <span className="min-w-0 text-left">
                   <span className="block text-sm font-semibold">{section.title}</span>
+                  <span className="block text-xs text-[var(--ink-soft)]">
+                    {section.description}
+                  </span>
                 </span>
               </button>
             ))}
           </div>
 
-          {activeSection === "library" && (
+          {activeSection === "library" ? (
             <>
               <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
                 <Panel
-                  title="新增書籍"
-                  icon={<Plus className="h-5 w-5" />}
+                  title="加入新書"
+                  eyebrow="Book Intake"
+                  icon={<Search className="h-5 w-5" />}
                 >
-                  <div className="mb-4 rounded-[1.5rem] border border-stone-200 bg-white/85 p-4">
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="grid gap-4">
+                    <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-[var(--paper-strong)] p-4">
                       <Field
-                        label="書名查找"
+                        label="書名搜尋"
                         value={bookSearchQuery}
                         onChange={setBookSearchQuery}
                         placeholder="輸入書名，例如：原子習慣"
                       />
-                    </div>
-                    {bookSearchLoading ? (
-                      <p className="mt-3 text-sm text-stone-600">搜尋中...</p>
-                    ) : bookSearchStatus ? (
-                      <p className="mt-3 text-sm text-stone-600">{bookSearchStatus}</p>
-                    ) : null}
-                    {bookSearchResults.length > 0 ? (
-                      <div className="mt-4 grid gap-3">
-                        {bookSearchResults.map((result) => (
-                          <button
-                            key={`${result.title}-${result.author}-${result.isbn}`}
-                            className="flex items-center justify-between gap-3 rounded-[1.2rem] border border-stone-200 bg-stone-50/90 px-4 py-3 text-left"
-                            onClick={() => applyBookResult(result)}
-                          >
-                            <span>
-                              <span className="block font-medium">{result.title}</span>
-                              <span className="block text-sm text-stone-500">
-                                {result.author || "作者未提供"}
+                      {bookSearchLoading ? (
+                        <p className="mt-3 text-sm text-[var(--ink-soft)]">搜尋中...</p>
+                      ) : null}
+                      {bookSearchResults.length > 0 ? (
+                        <div className="mt-4 grid gap-3">
+                          {bookSearchResults.map((result) => (
+                            <button
+                              key={`${result.title}-${result.author}-${result.isbn}`}
+                              className="result-row"
+                              onClick={() => applyBookResult(result)}
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate font-semibold">{result.title}</div>
+                                <div className="text-sm text-[var(--ink-soft)]">
+                                  {result.author || "作者未提供"}
+                                </div>
+                              </div>
+                              <span className="rounded-full border border-[var(--line-soft)] px-3 py-1 text-xs">
+                                選擇
                               </span>
-                            </span>
-                            <span className="text-sm text-stone-500">選擇</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Field
-                      label="書名"
-                      value={bookForm.title}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Field
+                        label="書名"
+                        value={bookForm.title}
+                        onChange={(value) =>
+                          setBookForm((current) => ({ ...current, title: value }))
+                        }
+                        placeholder="書名"
+                      />
+                      <Field
+                        label="作者"
+                        value={bookForm.author}
+                        onChange={(value) =>
+                          setBookForm((current) => ({ ...current, author: value }))
+                        }
+                        placeholder="作者"
+                      />
+                      <Field
+                        label="ISBN"
+                        value={bookForm.isbn}
+                        onChange={(value) =>
+                          setBookForm((current) => ({ ...current, isbn: value }))
+                        }
+                        placeholder="自動帶入或手動填寫"
+                      />
+                      <Field
+                        label="總頁數"
+                        value={bookForm.totalPages}
+                        onChange={(value) =>
+                          setBookForm((current) => ({ ...current, totalPages: value }))
+                        }
+                        placeholder="320"
+                      />
+                    </div>
+
+                    <TextAreaField
+                      label="書籍摘要"
+                      value={bookForm.description}
                       onChange={(value) =>
-                        setBookForm((current) => ({ ...current, title: value }))
+                        setBookForm((current) => ({ ...current, description: value }))
                       }
-                      placeholder="例如：原子習慣"
+                      placeholder="保留這本書最重要的定位"
+                      rows={4}
                     />
+
                     <Field
-                      label="作者"
-                      value={bookForm.author}
-                      onChange={(value) =>
-                        setBookForm((current) => ({ ...current, author: value }))
-                      }
-                      placeholder="作者名稱"
-                    />
-                    <Field
-                      label="ISBN"
-                      value={bookForm.isbn}
-                      onChange={(value) =>
-                        setBookForm((current) => ({ ...current, isbn: value }))
-                      }
-                      placeholder="選填"
-                    />
-                    <Field
-                      label="總頁數"
-                      value={bookForm.totalPages}
-                      onChange={(value) =>
-                        setBookForm((current) => ({
-                          ...current,
-                          totalPages: value,
-                        }))
-                      }
-                      placeholder="320"
-                      inputMode="numeric"
-                    />
-                    <Field
-                      label="封面網址"
+                      label="封面圖片"
                       value={bookForm.coverImage}
                       onChange={(value) =>
-                        setBookForm((current) => ({
-                          ...current,
-                          coverImage: value,
-                        }))
+                        setBookForm((current) => ({ ...current, coverImage: value }))
                       }
                       placeholder="https://..."
                     />
-                  </div>
-                  <label className="mt-3 block text-sm font-medium text-stone-700">
-                    書籍簡介
-                    <textarea
-                      className="textarea mt-2"
-                      value={bookForm.description}
-                      onChange={(event) =>
-                        setBookForm((current) => ({
-                          ...current,
-                          description: event.target.value,
-                        }))
-                      }
-                      placeholder="提供公開簡介後，系統會用它生成讀前導讀。"
-                    />
-                  </label>
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
+
                     <button className="button-primary" onClick={handleAddBook}>
                       <Plus className="h-4 w-4" />
                       加入書櫃
                     </button>
-                    {isbnStatus ? (
-                      <p className="text-sm text-stone-600">{isbnStatus}</p>
-                    ) : null}
                   </div>
                 </Panel>
 
                 <Panel
-                  title="收藏亮點"
-                  icon={<Quote className="h-5 w-5" />}
+                  title={selectedBook ? selectedBook.title : "閱讀儀表板"}
+                  eyebrow="Shelf Focus"
+                  icon={<BookOpen className="h-5 w-5" />}
                 >
-                  {favoriteNotes[0] ? (
-                    <div className="grid gap-4 lg:grid-cols-[1fr_0.85fr]">
-                      <div
-                        ref={shareCardRef}
-                        className="rounded-[1.75rem] bg-[linear-gradient(135deg,#2b2118,#7c5735_45%,#d5a26a)] p-6 text-stone-50 shadow-[0_30px_60px_rgba(52,31,12,0.28)]"
-                      >
-                        <p className="text-sm tracking-[0.24em] text-stone-200 uppercase">
-                          SmartRead Echo Card
-                        </p>
-                        <p className="mt-6 text-2xl leading-10 font-semibold">
-                          “{favoriteNotes[0].rawText.slice(0, 100)}
-                          {favoriteNotes[0].rawText.length > 100 ? "..." : ""}”
-                        </p>
-                        <p className="mt-6 text-sm leading-7 text-stone-200">
-                          {favoriteNotes[0].reflection ||
-                            "這則金句尚未補上個人心得。"}
-                        </p>
-                        <div className="mt-8 flex items-center justify-between text-sm text-stone-200">
-                          <span>{booksById[favoriteNotes[0].bookId]?.title}</span>
-                          <span>@SmartRead Echo</span>
-                        </div>
-                      </div>
-                      <div className="space-y-3 rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
-                        <button
-                          className="button-primary w-full"
-                          onClick={() => shareFavorite(favoriteNotes[0])}
-                        >
-                          <Share2 className="h-4 w-4" />
-                          分享
-                        </button>
-                        <button
-                          className="button-secondary w-full"
-                          onClick={downloadShareCard}
-                        >
-                          <Download className="h-4 w-4" />
-                          下載卡片
-                        </button>
-                        <button
-                          className="button-secondary w-full"
-                          onClick={() =>
-                            navigator.clipboard.writeText(
-                              createShareText(
-                                favoriteNotes[0],
-                                booksById[favoriteNotes[0].bookId],
-                              ),
-                            )
-                          }
-                        >
-                          <Download className="h-4 w-4" />
-                          複製文案
-                        </button>
-                        {shareStatus ? (
-                          <div className="rounded-[1.1rem] bg-stone-100 p-3 text-sm text-stone-700">
-                            {shareStatus}
+                  {selectedBook ? (
+                    <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+                      <div className="overflow-hidden rounded-[1.8rem] bg-[var(--paper-strong)] shadow-[0_18px_34px_rgba(76,55,24,0.08)]">
+                        {selectedBook.coverImage ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={selectedBook.coverImage}
+                            alt={selectedBook.title}
+                            className="h-full min-h-[300px] w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex min-h-[300px] items-center justify-center bg-[linear-gradient(140deg,#dbc9b0,#f7efe1)] text-[var(--ink-soft)]">
+                            無封面
                           </div>
-                        ) : null}
+                        )}
+                      </div>
+
+                      <div className="grid gap-4">
+                        <div>
+                          <p className="text-sm text-[var(--ink-soft)]">
+                            {selectedBook.author || "作者未填寫"}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Tag>{selectedBook.isbn || "ISBN 未填寫"}</Tag>
+                            <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
+                            <Tag>{getProgress(selectedBook)}% 已讀</Tag>
+                          </div>
+                        </div>
+
+                        <div className="rounded-[1.5rem] bg-[var(--paper-strong)] p-4">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-[var(--ink-soft)]">閱讀進度</span>
+                            <span className="font-semibold">
+                              {selectedBook.currentPage}/{selectedBook.totalPages || "?"}
+                            </span>
+                          </div>
+                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--line-soft)]">
+                            <div
+                              className="h-full rounded-full bg-[linear-gradient(90deg,var(--accent),var(--accent-warm))]"
+                              style={{ width: `${getProgress(selectedBook)}%` }}
+                            />
+                          </div>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
+                            <input
+                              type="range"
+                              min={0}
+                              max={selectedBook.totalPages || 100}
+                              value={selectedBook.currentPage}
+                              onChange={(event) =>
+                                updateProgress(
+                                  selectedBook.id,
+                                  Number(event.target.value),
+                                )
+                              }
+                            />
+                            <input
+                              className="input"
+                              inputMode="numeric"
+                              value={selectedBook.currentPage}
+                              onChange={(event) =>
+                                updateProgress(
+                                  selectedBook.id,
+                                  Number(event.target.value || 0),
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-white/72 p-4">
+                          <div className="text-sm leading-7 text-[var(--ink-soft)]">
+                            {selectedBook.description || "尚未填寫這本書的定位摘要。"}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            className="button-secondary"
+                            onClick={() => {
+                              setReadingBookId(selectedBook.id);
+                              setActiveSection("lab");
+                              setStatus("已切換到 Reading Lab");
+                            }}
+                          >
+                            <Clock3 className="h-4 w-4" />
+                            開始閱讀
+                          </button>
+                          <button
+                            className="button-secondary"
+                            onClick={() => deleteBook(selectedBook.id)}
+                          >
+                            移出書櫃
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-[1.5rem] border border-dashed border-stone-300 bg-white/70 p-6 text-sm text-stone-600">
-                      先把一則筆記標記為金句收藏，這裡就會顯示分享卡預覽。
-                    </div>
+                    <EmptyState
+                      title="你的書櫃還是空的"
+                      body="先從左側輸入書名，建立第一本要讀的書。"
+                    />
                   )}
                 </Panel>
               </div>
 
               <Panel
                 title="我的書櫃"
-                icon={<BookOpen className="h-5 w-5" />}
+                eyebrow="Your Shelf"
+                icon={<BookCopy className="h-5 w-5" />}
               >
-                <div className="grid gap-4">
-                  {books.map((book) => {
-                    const progress = book.totalPages
-                      ? Math.round((book.currentPage / book.totalPages) * 100)
-                      : 0;
-
-                    return (
-                      <article
-                        key={book.id}
-                        className="grid gap-4 rounded-[1.5rem] border border-stone-200 bg-white/85 p-4 md:grid-cols-[110px_1fr]"
-                      >
-                        <div
-                          className="h-40 rounded-[1.1rem] bg-cover bg-center"
-                          style={{
-                            backgroundImage: `linear-gradient(180deg,rgba(25,20,16,0.1),rgba(25,20,16,0.45)), url(${book.coverImage || "https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=800&q=80"})`,
-                          }}
-                        />
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <h3 className="text-xl font-semibold">
+                {books.length ? (
+                  <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                    {books.map((book) => {
+                      const active = selectedBookId === book.id;
+                      return (
+                        <button
+                          key={book.id}
+                          className={`book-card ${active ? "book-card-active" : ""}`}
+                          onClick={() => setSelectedBookId(book.id)}
+                        >
+                          <div className="flex gap-4">
+                            <div className="h-28 w-20 overflow-hidden rounded-[1rem] bg-[var(--paper-strong)]">
+                              {book.coverImage ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={book.coverImage}
+                                  alt={book.title}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : null}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-lg font-semibold">
                                 {book.title}
-                              </h3>
-                              <p className="text-sm text-stone-600">
-                                {book.author || "作者未填寫"}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <div className="rounded-full bg-stone-100 px-3 py-1 text-sm text-stone-700">
-                                {progress}% 已讀
                               </div>
-                              <button
-                                className="button-secondary"
-                                onClick={() => {
-                                  setReadingBookId(book.id);
-                                  setActiveSection("lab");
-                                }}
-                              >
-                                前往 Reading Lab
-                              </button>
-                              <button
-                                className="button-secondary"
-                                onClick={() => deleteBook(book.id)}
-                              >
-                                刪除
-                              </button>
+                              <div className="mt-1 text-sm text-[var(--ink-soft)]">
+                                {book.author || "作者未填寫"}
+                              </div>
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                <Tag>{book.totalPages || "?"} 頁</Tag>
+                                <Tag>{getProgress(book)}% 已讀</Tag>
+                              </div>
+                              <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--line-soft)]">
+                                <div
+                                  className="h-full rounded-full bg-[linear-gradient(90deg,var(--accent),var(--accent-warm))]"
+                                  style={{ width: `${getProgress(book)}%` }}
+                                />
+                              </div>
                             </div>
                           </div>
-                          <p className="line-clamp-2 text-sm leading-7 text-stone-600">
-                            {book.description || "尚未提供簡介。"}
-                          </p>
-                          <div className="flex flex-wrap items-center gap-3">
-                            <input
-                              className="input max-w-28"
-                              type="number"
-                              min={0}
-                              max={book.totalPages || undefined}
-                              value={book.currentPage}
-                              onChange={(event) =>
-                                updateProgress(book.id, Number(event.target.value))
-                              }
-                            />
-                            <span className="text-sm text-stone-500">
-                              / {book.totalPages || "?"} 頁
-                            </span>
-                          </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-stone-200">
-                            <div
-                              className="h-full rounded-full bg-[linear-gradient(90deg,#7b4f27,#b5773d,#d5aa73)]"
-                              style={{ width: `${progress}%` }}
-                            />
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="還沒有書籍"
+                    body="建立第一本書之後，這裡會變成你的閱讀主頁。"
+                  />
+                )}
               </Panel>
             </>
-          )}
+          ) : null}
 
-          {activeSection === "lab" && (
+          {activeSection === "lab" ? (
             <>
-              <div className="grid gap-5 xl:grid-cols-[0.88fr_1.12fr]">
+              <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
                 <Panel
-                  title="Focus Timer"
+                  title={readingBook ? readingBook.title : "Reading Lab"}
+                  eyebrow="Focus Session"
                   icon={<Clock3 className="h-5 w-5" />}
                 >
-                  <label className="text-sm font-medium text-stone-700">
-                    本次閱讀書籍
-                    <select
-                      className="input mt-2"
-                      value={readingBookId}
-                      onChange={(event) => setReadingBookId(event.target.value)}
-                    >
-                      {books.map((book) => (
-                        <option key={book.id} value={book.id}>
-                          {book.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="mt-6 text-center">
-                    <p className="text-sm tracking-[0.24em] text-stone-500 uppercase">
-                      Focus Timer
-                    </p>
-                    <div className="mt-3 text-6xl font-semibold tracking-tight">
-                      {formatMinutes(timerSeconds)}
-                    </div>
-                  </div>
-                  <div className="mt-5 grid grid-cols-3 gap-2">
-                    {[15, 25, 45].map((minutes) => (
-                      <button
-                        key={minutes}
-                        className="button-secondary"
-                        onClick={() => {
-                          setTimerSeconds(minutes * 60);
-                          setTimerRunning(false);
-                        }}
-                      >
-                        {minutes} 分
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      className="button-primary"
-                      onClick={() => setTimerRunning((current) => !current)}
-                    >
-                      {timerRunning ? "暫停" : "開始閱讀"}
-                    </button>
-                    <button className="button-secondary" onClick={toggleSound}>
-                      {soundOn ? "關閉白噪音" : "開啟白噪音"}
-                    </button>
-                    <button className="button-secondary" onClick={finishSession}>
-                      完成本次閱讀
-                    </button>
-                  </div>
-                </Panel>
+                  {readingBook ? (
+                    <div className="grid gap-5">
+                      <div className="rounded-[1.8rem] bg-[linear-gradient(160deg,rgba(47,40,33,0.96),rgba(96,72,46,0.92))] p-6 text-white shadow-[0_22px_50px_rgba(59,43,20,0.24)]">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs tracking-[0.22em] text-white/64 uppercase">
+                              Focus Timer
+                            </p>
+                            <div className="mt-3 text-6xl font-semibold tracking-tight">
+                              {formatMinutes(timerSeconds)}
+                            </div>
+                          </div>
+                          <div className="rounded-[1.3rem] border border-white/14 bg-white/10 px-4 py-3 text-right text-sm text-white/72">
+                            <div>{readingBook.author || "作者未填寫"}</div>
+                            <div className="mt-1">
+                              {readingBook.currentPage}/{readingBook.totalPages || "?"} 頁
+                            </div>
+                          </div>
+                        </div>
 
-                <Panel
-                  title="AI 讀前導讀"
-                  icon={<Sparkles className="h-5 w-5" />}
-                >
-                  {guide && selectedBook ? (
-                    <div className="space-y-4">
-                      <div>
-                        <h3 className="text-2xl font-semibold">
-                          {selectedBook.title}
-                        </h3>
-                        <p className="mt-2 text-sm leading-7 text-stone-700">
-                          {guide.audience}
-                        </p>
+                        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                          <button
+                            className="button-primary border-white/10 bg-white text-[var(--ink-strong)] shadow-none"
+                            onClick={() => setTimerRunning((current) => !current)}
+                          >
+                            {timerRunning ? "暫停" : "開始"}
+                          </button>
+                          <button
+                            className="button-secondary border-white/10 bg-white/10 text-white"
+                            onClick={() => {
+                              setTimerSeconds(FOCUS_MINUTES * 60);
+                              setTimerRunning(false);
+                            }}
+                          >
+                            <TimerReset className="h-4 w-4" />
+                            重設
+                          </button>
+                          <button
+                            className="button-secondary border-white/10 bg-white/10 text-white"
+                            onClick={finishSession}
+                          >
+                            <Check className="h-4 w-4" />
+                            完成
+                          </button>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <button
+                            className="button-secondary border-white/10 bg-white/10 text-white"
+                            onClick={toggleSound}
+                          >
+                            <Waves className="h-4 w-4" />
+                            {soundOn ? "關閉白噪音" : "開啟白噪音"}
+                          </button>
+                          <select
+                            className="input border-white/10 bg-white/10 text-white"
+                            value={readingBookId}
+                            onChange={(event) => {
+                              setReadingBookId(event.target.value);
+                              setSelectedBookId(event.target.value);
+                              setNoteForm((current) => ({
+                                ...current,
+                                bookId: event.target.value,
+                              }));
+                            }}
+                          >
+                            {books.map((book) => (
+                              <option key={book.id} value={book.id} className="text-black">
+                                {book.title}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                      <div className="rounded-[1.25rem] bg-[linear-gradient(180deg,#fffef9,#f7ebd8)] p-4">
-                        <p className="text-sm tracking-[0.2em] text-stone-500 uppercase">
-                          閱讀前可以先想
-                        </p>
-                        <ol className="mt-3 space-y-3 text-sm leading-7 text-stone-700">
-                          {guide.questions.map((question) => (
-                            <li key={question} className="flex gap-3">
-                              <span className="mt-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-stone-900 text-xs text-white">
-                                ?
-                              </span>
-                              <span>{question}</span>
-                            </li>
+
+                      {readingGuide ? (
+                        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                          <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-[var(--paper-strong)] p-4">
+                            <div className="text-sm font-semibold">適合讀者</div>
+                            <div className="mt-2 text-sm leading-7 text-[var(--ink-soft)]">
+                              {readingGuide.audience}
+                            </div>
+                          </div>
+                          <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-[var(--paper-strong)] p-4">
+                            <div className="text-sm font-semibold">讀前問題</div>
+                            <div className="mt-2 grid gap-2 text-sm leading-7 text-[var(--ink-soft)]">
+                              {readingGuide.questions.map((question) => (
+                                <div key={question} className="rounded-2xl bg-white/70 px-3 py-2">
+                                  {question}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-white/72 p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold">最近閱讀</div>
+                          <div className="text-xs text-[var(--ink-soft)]">
+                            {recentSessions.length} 筆
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3">
+                          {recentSessions.map((session) => (
+                            <div
+                              key={session.id}
+                              className="flex items-center justify-between rounded-[1.2rem] bg-white/70 px-4 py-3"
+                            >
+                              <div>
+                                <div className="font-medium">
+                                  {booksById[session.bookId]?.title ?? "未命名書籍"}
+                                </div>
+                                <div className="text-sm text-[var(--ink-soft)]">
+                                  {formatDate(session.startedAt)}
+                                </div>
+                              </div>
+                              <div className="text-sm font-semibold">
+                                {session.minutes} 分鐘
+                              </div>
+                            </div>
                           ))}
-                        </ol>
+                        </div>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-stone-600">
-                      先建立至少一本書，這裡就會出現導讀內容。
-                    </p>
+                    <EmptyState
+                      title="先選一本正在閱讀的書"
+                      body="到書籍整理把第一本書加入書櫃，就能開始計時與摘錄。"
+                    />
                   )}
                 </Panel>
-              </div>
 
-              <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
                 <Panel
-                  title="OCR 採集與筆記工作台"
+                  title={editingNoteId ? "編輯筆記" : "新增摘錄"}
+                  eyebrow="Capture"
                   icon={<ScanText className="h-5 w-5" />}
                 >
-                  <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-                    <div className="rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
-                      <label className="text-sm font-medium text-stone-700">
-                        綁定書籍
+                  <div className="grid gap-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="field-wrap">
+                        <label className="field-label">書籍</label>
                         <select
-                          className="input mt-2"
+                          className="input"
                           value={noteForm.bookId}
                           onChange={(event) =>
                             setNoteForm((current) => ({
@@ -1370,352 +1487,357 @@ function AppShell() {
                             </option>
                           ))}
                         </select>
-                      </label>
-                      <label className="mt-4 block text-sm font-medium text-stone-700">
-                        書頁照片
-                        <input
-                          className="mt-2 block w-full text-sm text-stone-600 file:mr-3 file:rounded-full file:border-0 file:bg-stone-900 file:px-4 file:py-2 file:text-sm file:text-white"
-                          type="file"
-                          accept="image/*"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            if (file) {
-                              void runOcr(file);
-                            }
-                          }}
-                        />
-                      </label>
-                      {noteForm.imageDataUrl ? (
-                        <div
-                          className="mt-4 h-48 rounded-[1.25rem] bg-cover bg-center"
-                          style={{ backgroundImage: `url(${noteForm.imageDataUrl})` }}
-                        />
-                      ) : (
-                        <div className="mt-4 flex h-48 items-center justify-center rounded-[1.25rem] border border-dashed border-stone-300 text-sm text-stone-500">
-                          尚未選擇圖片
-                        </div>
-                      )}
-                      <p className="mt-3 text-sm leading-6 text-stone-500">
-                        {ocrStatus}
-                      </p>
+                      </div>
+                      <Field
+                        label="頁碼"
+                        value={noteForm.page}
+                        onChange={(value) =>
+                          setNoteForm((current) => ({ ...current, page: value }))
+                        }
+                        placeholder="42"
+                      />
                     </div>
 
-                    <div className="space-y-4">
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <Field
-                          label="頁碼"
-                          value={noteForm.page}
-                          onChange={(value) =>
-                            setNoteForm((current) => ({
-                              ...current,
-                              page: value,
-                            }))
-                          }
-                          placeholder="42"
-                          inputMode="numeric"
-                        />
-                        <label className="mt-7 flex items-center gap-2 text-sm text-stone-700">
+                    <div className="rounded-[1.5rem] border border-dashed border-[var(--line-strong)] bg-[var(--paper-strong)] p-4">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold">OCR 採集</div>
+                          <div className="mt-1 text-sm text-[var(--ink-soft)]">
+                            上傳書頁圖片後，自動帶入摘錄內容。
+                          </div>
+                        </div>
+                        <label className="button-secondary">
+                          上傳圖片
                           <input
-                            type="checkbox"
-                            checked={noteForm.isFavorite}
-                            onChange={(event) =>
-                              setNoteForm((current) => ({
-                                ...current,
-                                isFavorite: event.target.checked,
-                              }))
-                            }
+                            className="hidden"
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (file) {
+                                void runOcr(file);
+                              }
+                            }}
                           />
-                          標記為金句收藏
                         </label>
                       </div>
-                      <label className="block text-sm font-medium text-stone-700">
-                        OCR 摘錄
-                        <textarea
-                          className="textarea mt-2 min-h-40"
-                          value={noteForm.rawText}
-                          onChange={(event) =>
-                            setNoteForm((current) => ({
-                              ...current,
-                              rawText: event.target.value,
-                            }))
-                          }
-                          placeholder="OCR 辨識結果會出現在這裡，你也可以自行修正。"
+                      {noteForm.imageDataUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={noteForm.imageDataUrl}
+                          alt="OCR preview"
+                          className="mt-4 h-52 w-full rounded-[1.4rem] object-cover"
                         />
-                      </label>
-                      <label className="block text-sm font-medium text-stone-700">
-                        我的心得 / Echo Context
-                        <textarea
-                          className="textarea mt-2 min-h-32"
-                          value={noteForm.reflection}
-                          onChange={(event) =>
-                            setNoteForm((current) => ({
-                              ...current,
-                              reflection: event.target.value,
-                            }))
-                          }
-                          placeholder="這段文字對你有什麼意義？之後 Echo 會優先用這裡來提問。"
-                        />
-                      </label>
+                      ) : null}
+                    </div>
+
+                    <TextAreaField
+                      label="摘錄"
+                      value={noteForm.rawText}
+                      onChange={(value) =>
+                        setNoteForm((current) => ({ ...current, rawText: value }))
+                      }
+                      placeholder="貼上或辨識出來的文字"
+                      rows={5}
+                    />
+
+                    <TextAreaField
+                      label="自己的心得"
+                      value={noteForm.reflection}
+                      onChange={(value) =>
+                        setNoteForm((current) => ({ ...current, reflection: value }))
+                      }
+                      placeholder="這段話改變了你什麼想法？"
+                      rows={5}
+                    />
+
+                    <button
+                      className={`favorite-toggle ${noteForm.isFavorite ? "favorite-toggle-active" : ""}`}
+                      onClick={() =>
+                        setNoteForm((current) => ({
+                          ...current,
+                          isFavorite: !current.isFavorite,
+                        }))
+                      }
+                    >
+                      <Star className="h-4 w-4" />
+                      收藏成金句
+                    </button>
+
+                    <div className="flex flex-wrap gap-3">
                       <button className="button-primary" onClick={saveNote}>
                         <Plus className="h-4 w-4" />
-                        {editingNoteId ? "更新筆記" : "儲存私人筆記"}
+                        {editingNoteId ? "更新筆記" : "儲存筆記"}
                       </button>
+                      {editingNoteId ? (
+                        <button
+                          className="button-secondary"
+                          onClick={() => {
+                            setEditingNoteId(null);
+                            setNoteForm((current) => ({
+                              ...current,
+                              page: "",
+                              rawText: "",
+                              reflection: "",
+                              isFavorite: false,
+                              imageDataUrl: "",
+                            }));
+                            setStatus("已取消編輯");
+                          }}
+                        >
+                          取消
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </Panel>
+              </div>
 
-                <Panel title="最近閱讀與筆記" icon={<Trophy className="h-5 w-5" />}>
-                  <div className="grid gap-3">
-                    {recentSessions.map((session) => (
-                      <article
-                        key={session.id}
-                        className="rounded-[1.4rem] border border-stone-200 bg-white/80 p-4"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="font-medium">
-                              {booksById[session.bookId]?.title || "未命名書籍"}
-                            </p>
-                            <p className="mt-1 text-sm text-stone-500">
-                              {formatDate(session.startedAt)}
-                            </p>
+              <Panel
+                title="最近筆記"
+                eyebrow="Recent Notes"
+                icon={<Quote className="h-5 w-5" />}
+              >
+                {recentNotes.length ? (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {recentNotes.map((note) => (
+                      <NoteCard
+                        key={note.id}
+                        note={note}
+                        book={booksById[note.bookId]}
+                        onEdit={() => editNote(note)}
+                        onDelete={() => deleteNote(note.id)}
+                        onShare={() => void shareFavorite(note)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="還沒有摘錄"
+                    body="完成第一段摘錄後，這裡會變成你的閱讀記錄牆。"
+                  />
+                )}
+              </Panel>
+            </>
+          ) : null}
+
+          {activeSection === "echo" ? (
+            <>
+              <div className="grid gap-5 xl:grid-cols-[1.02fr_0.98fr]">
+                <Panel
+                  title="待複習回聲"
+                  eyebrow="Echo Queue"
+                  icon={<Brain className="h-5 w-5" />}
+                >
+                  {dueEchoes.length ? (
+                    <div className="grid gap-4">
+                      {dueEchoes.map((echo) => (
+                        <div key={echo.id} className="echo-card">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="text-xs font-semibold tracking-[0.18em] text-[var(--accent-ink)] uppercase">
+                                Day {echo.day}
+                              </div>
+                              <div className="mt-2 text-xl font-semibold">
+                                {echo.book?.title ?? "未命名書籍"}
+                              </div>
+                              <div className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
+                                {buildEchoPrompt(echo.note, echo.book)}
+                              </div>
+                            </div>
+                            <button
+                              className="button-secondary"
+                              onClick={() => completeEcho(echo.id)}
+                            >
+                              完成
+                            </button>
                           </div>
-                          <div className="rounded-full bg-stone-100 px-3 py-1 text-sm text-stone-700">
-                            {session.minutes} 分
+                          <div className="mt-4 grid gap-3 rounded-[1.25rem] bg-white/72 p-4 text-sm text-[var(--ink-soft)]">
+                            <div>摘錄：{echo.note.rawText}</div>
+                            <div>心得：{echo.note.reflection || "尚未補充心得"}</div>
                           </div>
                         </div>
-                      </article>
-                    ))}
-                    {notes.slice(0, 4).map((note) => (
-                      <article
-                        key={note.id}
-                        className="rounded-[1.4rem] border border-stone-200 bg-white/80 p-4"
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState
+                      title="目前沒有待處理回聲"
+                      body="新增更多筆記後，系統會在 1、7、30 天後提醒你回想。"
+                    />
+                  )}
+                </Panel>
+
+                <Panel
+                  title="分享與輸出"
+                  eyebrow="Output"
+                  icon={<Share2 className="h-5 w-5" />}
+                >
+                  <div className="grid gap-4">
+                    <div
+                      ref={shareCardRef}
+                      className="overflow-hidden rounded-[1.9rem] bg-[linear-gradient(145deg,#2e251f,#8f6539_58%,#d8a667)] p-6 text-white shadow-[0_25px_60px_rgba(68,44,21,0.26)]"
+                    >
+                      <div className="text-xs tracking-[0.22em] text-white/64 uppercase">
+                        分享卡
+                      </div>
+                      <div className="mt-4 font-serif-display text-3xl leading-[1.4]">
+                        {favoriteNotes[0]?.rawText || "先收藏一段值得反覆回看的句子。"}
+                      </div>
+                      <div className="mt-6 text-sm text-white/78">
+                        {favoriteNotes[0]
+                          ? `《${booksById[favoriteNotes[0].bookId]?.title ?? "未命名書籍"}》`
+                          : "SmartRead Echo"}
+                      </div>
+                      <div className="mt-3 text-sm leading-7 text-white/72">
+                        {favoriteNotes[0]?.reflection || "把閱讀變成自己的話，才會真正留下來。"}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <button
+                        className="button-primary"
+                        onClick={() =>
+                          favoriteNotes[0]
+                            ? void shareFavorite(favoriteNotes[0])
+                            : setStatus("請先收藏一則金句")
+                        }
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="font-medium">
-                              {booksById[note.bookId]?.title || "未命名書籍"}
-                            </p>
-                            <p className="mt-1 text-sm text-stone-500">
-                              第 {note.page || "?"} 頁
-                            </p>
+                        <Share2 className="h-4 w-4" />
+                        系統分享
+                      </button>
+                      <button className="button-secondary" onClick={downloadShareCard}>
+                        <Download className="h-4 w-4" />
+                        下載卡片
+                      </button>
+                      <button className="button-secondary" onClick={exportToNotion}>
+                        <GitBranch className="h-4 w-4" />
+                        匯出到 Notion
+                      </button>
+                      <button className="button-secondary" onClick={exportBackup}>
+                        <Download className="h-4 w-4" />
+                        下載備份
+                      </button>
+                    </div>
+
+                    <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-[var(--paper-strong)] p-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold">
+                        <Trophy className="h-4 w-4" />
+                        升級路線
+                      </div>
+                      <div className="mt-4 grid gap-3">
+                        {LEVELS.map((item) => {
+                          const unlocked = inkDrops >= item.min;
+                          return (
+                            <div
+                              key={item.level}
+                              className={`flex items-center justify-between rounded-[1.2rem] px-4 py-3 ${
+                                unlocked
+                                  ? "bg-amber-50 text-[var(--ink-strong)]"
+                                  : "bg-white/70 text-[var(--ink-soft)]"
+                              }`}
+                            >
+                              <div>
+                                <div className="font-semibold">
+                                  Lv.{item.level} {item.label}
+                                </div>
+                                <div className="text-sm">{item.unlock}</div>
+                              </div>
+                              <div className="text-xs font-semibold uppercase">
+                                {unlocked ? "Unlocked" : `${item.min} Ink`}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </Panel>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
+                <Panel
+                  title="知識圖譜"
+                  eyebrow="Concept Map"
+                  icon={<GitBranch className="h-5 w-5" />}
+                >
+                  {conceptGraph.length ? (
+                    <div className="grid gap-4">
+                      <div className="flex flex-wrap gap-3">
+                        {conceptGraph.map((concept, index) => (
+                          <div
+                            key={concept.term}
+                            className="concept-chip"
+                            style={{
+                              width: `${Math.min(240, 118 + concept.count * 18 + index * 2)}px`,
+                            }}
+                          >
+                            <div className="font-semibold">{concept.term}</div>
+                            <div className="mt-1 text-xs text-[var(--ink-soft)]">
+                              {concept.count} 次提及
+                            </div>
+                            <div className="mt-2 text-xs text-[var(--ink-soft)]">
+                              {concept.books.join(" · ")}
+                            </div>
                           </div>
-                          <div className="flex gap-2">
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <EmptyState
+                      title="知識圖譜還沒有素材"
+                      body="多寫幾則筆記之後，這裡會開始長出你自己的主題地圖。"
+                    />
+                  )}
+                </Panel>
+
+                <Panel
+                  title="收藏金句"
+                  eyebrow="Favorites"
+                  icon={<Star className="h-5 w-5" />}
+                >
+                  {favoriteNotes.length ? (
+                    <div className="grid gap-4">
+                      {favoriteNotes.map((note) => (
+                        <div key={note.id} className="rounded-[1.5rem] bg-white/72 p-4">
+                          <div className="text-sm text-[var(--ink-soft)]">
+                            {booksById[note.bookId]?.title ?? "未命名書籍"}
+                          </div>
+                          <div className="mt-3 font-serif-display text-2xl leading-[1.7]">
+                            {note.rawText}
+                          </div>
+                          {note.reflection ? (
+                            <div className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
+                              {note.reflection}
+                            </div>
+                          ) : null}
+                          <div className="mt-4 flex flex-wrap gap-3">
+                            <button
+                              className="button-secondary"
+                              onClick={() => void shareFavorite(note)}
+                            >
+                              <Share2 className="h-4 w-4" />
+                              分享
+                            </button>
                             <button
                               className="button-secondary"
                               onClick={() => editNote(note)}
                             >
                               編輯
                             </button>
-                            <button
-                              className="button-secondary"
-                              onClick={() => deleteNote(note.id)}
-                            >
-                              刪除
-                            </button>
                           </div>
                         </div>
-                        <p className="mt-3 text-sm text-stone-700">{note.rawText}</p>
-                      </article>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState
+                      title="還沒有收藏金句"
+                      body="在 Reading Lab 把重要摘錄標成收藏，這裡就會變成你的精華區。"
+                    />
+                  )}
                 </Panel>
               </div>
             </>
-          )}
-
-          {activeSection === "echo" && (
-            <>
-              <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-                <Panel
-                  title="到期回聲"
-                  icon={<Brain className="h-5 w-5" />}
-                >
-                  <div className="space-y-4">
-                    {dueEchoes.length > 0 ? (
-                      dueEchoes.map((echo) => (
-                        <article
-                          key={echo.id}
-                          className="rounded-[1.5rem] border border-amber-950/10 bg-[linear-gradient(180deg,#fffdfa,#f7efdf)] p-4"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <p className="text-sm tracking-[0.2em] text-stone-500 uppercase">
-                                Day {echo.day} Echo
-                              </p>
-                              <h3 className="mt-1 text-lg font-semibold">
-                                {echo.book?.title ?? "未命名書籍"}
-                              </h3>
-                            </div>
-                            <button
-                              className="button-secondary"
-                              onClick={() => completeEcho(echo.id)}
-                            >
-                              標記已回應
-                            </button>
-                          </div>
-                          <p className="mt-3 text-sm leading-7 text-stone-700">
-                            {buildEchoPrompt(echo.note, echo.book)}
-                          </p>
-                          <div className="mt-3 rounded-[1.1rem] bg-white/80 p-3 text-sm text-stone-600">
-                            <span className="font-medium text-stone-800">
-                              你的原始心得：
-                            </span>{" "}
-                            {echo.note.reflection || echo.note.rawText}
-                          </div>
-                        </article>
-                      ))
-                    ) : (
-                      <div className="rounded-[1.5rem] border border-dashed border-stone-300 bg-white/70 p-6 text-sm leading-7 text-stone-600">
-                        目前沒有到期的回聲複習。新增筆記後，系統會自動在第 1、7、30
-                        天產生複習節點。
-                      </div>
-                    )}
-                  </div>
-                </Panel>
-
-                <Panel
-                  title="回聲儀表板"
-                  icon={<Star className="h-5 w-5" />}
-                >
-                  <div className="grid gap-4">
-                    <div className="rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium text-stone-700">
-                        <Trophy className="h-4 w-4" />
-                        複習表現
-                      </div>
-                      <ul className="mt-4 space-y-3 text-sm text-stone-600">
-                        <li>已收藏金句：{favoriteNotes.length} 則</li>
-                        <li>平均閱讀進度：{averageProgress}%</li>
-                        <li>完成回聲節點：{completedEchoes.length} 次</li>
-                        <li>累積閱讀場次：{sessions.length} 次</li>
-                        <li>連續閱讀：{streakDays} 天</li>
-                      </ul>
-                    </div>
-
-                    <div className="rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium text-stone-700">
-                        <Quote className="h-4 w-4" />
-                        筆記整理
-                      </div>
-                      <div className="mt-4 grid gap-3">
-                        {notes.slice(0, 4).map((note) => (
-                          <div
-                            key={note.id}
-                            className="rounded-[1.1rem] bg-stone-100 p-4 text-sm text-stone-700"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="font-medium">
-                                {booksById[note.bookId]?.title}
-                              </span>
-                              <span className="text-xs text-stone-500">
-                                第 {note.page || "?"} 頁
-                              </span>
-                            </div>
-                            <p className="mt-2 line-clamp-2">{note.rawText}</p>
-                            {note.reflection ? (
-                              <p className="mt-2 text-stone-500">{note.reflection}</p>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium text-stone-700">
-                        <Download className="h-4 w-4" />
-                        匯出
-                      </div>
-                      <div className="mt-4 grid gap-3">
-                        <button className="button-primary" onClick={exportToNotion}>
-                          <Download className="h-4 w-4" />
-                          匯出到 Notion
-                        </button>
-                        <button className="button-secondary" onClick={exportBackup}>
-                          <Download className="h-4 w-4" />
-                          下載完整備份
-                        </button>
-                        {notionStatus ? (
-                          <div className="rounded-[1.1rem] bg-stone-100 p-3 text-sm text-stone-700">
-                            {notionStatus}
-                          </div>
-                        ) : null}
-                        {backupStatus ? (
-                          <div className="rounded-[1.1rem] bg-stone-100 p-3 text-sm text-stone-700">
-                            {backupStatus}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium text-stone-700">
-                        <Trophy className="h-4 w-4" />
-                        升級進度
-                      </div>
-                      <div className="mt-4 grid gap-3">
-                        {LEVELS.map((tier) => {
-                          const active = tier.level === level.level;
-                          const unlocked = level.level >= tier.level;
-                          return (
-                            <div
-                              key={tier.level}
-                              className={`rounded-[1.1rem] border px-4 py-3 ${
-                                active
-                                  ? "border-amber-700/30 bg-amber-50"
-                                  : unlocked
-                                    ? "border-stone-200 bg-stone-50"
-                                    : "border-stone-200 bg-white"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="font-medium">
-                                  Lv.{tier.level} {tier.label}
-                                </span>
-                                <span className="text-xs text-stone-500">
-                                  {tier.min}+ Ink
-                                </span>
-                              </div>
-                              <p className="mt-2 text-sm text-stone-600">
-                                {tier.unlock}
-                              </p>
-                            </div>
-                          );
-                        })}
-                        <div className="rounded-[1.1rem] bg-stone-100 p-3 text-sm text-stone-700">
-                          {nextLevelConfig
-                            ? `距離下一級還差 ${Math.max(0, nextLevelConfig.min - inkDrops)} Ink Drops`
-                            : `已達最高等級，當前解鎖：${currentLevelConfig.unlock}`}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium text-stone-700">
-                        <GitBranch className="h-4 w-4" />
-                        知識圖譜分析
-                      </div>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {conceptGraph.map((concept) => (
-                          <div
-                            key={concept.term}
-                            className="rounded-full border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700"
-                          >
-                            {concept.term} · {concept.count}
-                          </div>
-                        ))}
-                      </div>
-                      {conceptGraph[0] ? (
-                        <div className="mt-4 rounded-[1.1rem] bg-stone-100 p-3 text-sm text-stone-700">
-                          最近最常出現的主題：{conceptGraph[0].term}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </Panel>
-              </div>
-            </>
-          )}
+          ) : null}
         </section>
       </main>
     </div>
@@ -1724,21 +1846,28 @@ function AppShell() {
 
 function Panel({
   title,
+  eyebrow,
   icon,
   children,
 }: {
   title: string;
+  eyebrow: string;
   icon: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/60 bg-[#fcfaf6]/90 p-5 shadow-[0_18px_50px_rgba(72,44,18,0.08)] md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className="glass-panel rounded-[2rem] p-5 md:p-6">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-base font-semibold">
-            {icon}
-            {title}
+          <div className="text-xs font-semibold tracking-[0.22em] text-[var(--accent-ink)] uppercase">
+            {eyebrow}
           </div>
+          <h3 className="mt-2 flex items-center gap-2 font-serif-display text-[1.8rem] leading-tight">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--paper-strong)] text-[var(--accent-ink)]">
+              {icon}
+            </span>
+            {title}
+          </h3>
         </div>
       </div>
       <div className="mt-5">{children}</div>
@@ -1751,33 +1880,140 @@ function Field({
   value,
   onChange,
   placeholder,
-  inputMode,
+}: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="field-wrap">
+      <label className="field-label">{label}</label>
+      <input
+        className="input"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+function TextAreaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  rows,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  placeholder: string;
-  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  placeholder?: string;
+  rows?: number;
 }) {
   return (
-    <label className="text-sm font-medium text-stone-700">
-      {label}
-      <input
-        className="input mt-2"
+    <div className="field-wrap">
+      <label className="field-label">{label}</label>
+      <textarea
+        className="textarea"
         value={value}
-        inputMode={inputMode}
-        onChange={(event) => onChange(event.target.value)}
+        rows={rows ?? 4}
         placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
       />
-    </label>
+    </div>
   );
 }
 
-function MetricMini({ label, value }: { label: string; value: string }) {
+function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.2rem] border border-stone-200 bg-white/80 px-4 py-3">
-      <p className="text-xs tracking-[0.2em] text-stone-500 uppercase">{label}</p>
-      <p className="mt-2 text-xl font-semibold">{value}</p>
+    <div className="flex items-center justify-between rounded-[1.2rem] bg-white/70 px-4 py-3">
+      <span className="text-sm text-[var(--ink-soft)]">{label}</span>
+      <span className="font-semibold">{value}</span>
+    </div>
+  );
+}
+
+function HeroMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1.35rem] border border-[var(--line-soft)] bg-white/72 px-4 py-4">
+      <div className="text-sm text-[var(--ink-soft)]">{label}</div>
+      <div className="mt-2 text-2xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function Tag({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-full border border-[var(--line-soft)] bg-white px-3 py-1 text-xs font-semibold text-[var(--ink-soft)]">
+      {children}
+    </span>
+  );
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-[1.8rem] border border-dashed border-[var(--line-strong)] bg-[var(--paper-strong)] px-6 py-10 text-center">
+      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[var(--accent-ink)] shadow-[0_16px_34px_rgba(70,53,25,0.08)]">
+        <BookOpen className="h-6 w-6" />
+      </div>
+      <div className="mt-4 font-serif-display text-2xl">{title}</div>
+      <div className="mt-2 text-sm leading-7 text-[var(--ink-soft)]">{body}</div>
+    </div>
+  );
+}
+
+function NoteCard({
+  note,
+  book,
+  onEdit,
+  onDelete,
+  onShare,
+}: {
+  note: Note;
+  book?: Book;
+  onEdit: () => void;
+  onDelete: () => void;
+  onShare: () => void;
+}) {
+  return (
+    <div className="rounded-[1.7rem] border border-[var(--line-soft)] bg-white/76 p-5 shadow-[0_18px_34px_rgba(77,56,25,0.06)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm text-[var(--ink-soft)]">
+            {book?.title ?? "未命名書籍"}
+          </div>
+          <div className="mt-1 text-xs text-[var(--ink-soft)]">
+            第 {note.page || "?"} 頁 · {formatDate(note.createdAt)}
+          </div>
+        </div>
+        {note.isFavorite ? (
+          <div className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+            收藏
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-4 font-serif-display text-2xl leading-[1.7]">{note.rawText}</div>
+      {note.reflection ? (
+        <div className="mt-4 rounded-[1.25rem] bg-[var(--paper-strong)] px-4 py-3 text-sm leading-7 text-[var(--ink-soft)]">
+          {note.reflection}
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button className="button-secondary" onClick={onEdit}>
+          編輯
+        </button>
+        <button className="button-secondary" onClick={onDelete}>
+          刪除
+        </button>
+        <button className="button-secondary" onClick={onShare}>
+          <Share2 className="h-4 w-4" />
+          分享
+        </button>
+      </div>
     </div>
   );
 }
