@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4efe6;
+  --foreground: #221912;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-geist-mono), serif;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: rgba(161, 103, 47, 0.18);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgba(87, 64, 43, 0.14);
+  background: rgba(255, 255, 255, 0.88);
+  padding: 0.8rem 0.95rem;
+  color: #221912;
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: rgba(141, 91, 43, 0.58);
+  box-shadow: 0 0 0 4px rgba(205, 166, 118, 0.18);
+  background: rgba(255, 255, 255, 1);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border-radius: 999px;
+  padding: 0.78rem 1.15rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.button-primary {
+  border: 1px solid rgba(67, 41, 17, 0.08);
+  background: linear-gradient(135deg, #2e2117, #7d5127 55%, #b9814b);
+  color: #fff9f2;
+  box-shadow: 0 14px 30px rgba(71, 45, 19, 0.18);
+}
+
+.button-primary:hover,
+.button-secondary:hover {
+  transform: translateY(-1px);
+}
+
+.button-secondary {
+  border: 1px solid rgba(87, 64, 43, 0.14);
+  background: rgba(255, 255, 255, 0.9);
+  color: #342316;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
