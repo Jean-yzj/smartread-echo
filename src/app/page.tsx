@@ -1290,7 +1290,7 @@ function AppShell() {
       <main className="mx-auto grid min-h-screen w-full max-w-[1540px] gap-5 px-4 py-4 lg:grid-cols-[290px_minmax(0,1fr)] lg:px-6 lg:py-6">
         <aside className="app-sidebar flex flex-col gap-5 rounded-[2.2rem] p-5 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
           <div className="brand-card">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-bold tracking-[0.22em] text-white/72 uppercase">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-bold tracking-[0.22em] text-white/84 uppercase">
               <Sparkles className="h-3.5 w-3.5" />
               SmartRead Echo
             </div>
@@ -1298,7 +1298,7 @@ function AppShell() {
               <div className="font-serif-display text-[1.7rem] leading-tight text-white">
                 閱讀控制台
               </div>
-              <div className="mt-2 text-sm text-white/56">
+              <div className="mt-2 text-sm text-white/72">
                 Read. Capture. Recall.
               </div>
             </div>
@@ -1307,15 +1307,15 @@ function AppShell() {
           <div className="sidebar-stats">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] tracking-[0.22em] text-white/44 uppercase">
+                <div className="text-[11px] tracking-[0.22em] text-white/58 uppercase">
                   Progress
                 </div>
                 <div className="mt-2 text-3xl font-semibold text-white">{inkDrops}</div>
-                <div className="mt-1 text-sm text-white/62">
+                <div className="mt-1 text-sm text-white/78">
                   Lv.{level.level} {level.label}
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/8 bg-white/6 px-3 py-2 text-sm text-white/82">
+              <div className="rounded-2xl border border-white/8 bg-white/6 px-3 py-2 text-sm text-white/88">
                 {streakDays} 天
               </div>
             </div>
@@ -1327,7 +1327,7 @@ function AppShell() {
                 }}
               />
             </div>
-            <div className="mt-3 text-xs text-white/48">
+            <div className="mt-3 text-xs text-white/66">
               {nextLevelConfig
                 ? `距離 Lv.${nextLevelConfig.level} 還差 ${Math.max(0, nextLevelConfig.min - inkDrops)} 點`
                 : "目前已達最高等級"}
@@ -1348,17 +1348,17 @@ function AppShell() {
                     <span className="block text-sm font-semibold text-white">
                       {section.title}
                     </span>
-                    <span className="mt-0.5 block text-[11px] tracking-[0.18em] text-white/40 uppercase">
+                    <span className="mt-0.5 block text-[11px] tracking-[0.18em] text-white/62 uppercase">
                       {section.short}
                     </span>
                   </span>
-                  <ChevronRight className="ml-auto h-4 w-4 text-white/36" />
+                  <ChevronRight className="ml-auto h-4 w-4 text-white/60" />
                 </button>
               );
             })}
           </nav>
 
-          <div className="mt-auto grid grid-cols-2 gap-3 rounded-[1.7rem] border border-white/8 bg-white/6 p-4">
+          <div className="mt-auto grid grid-cols-2 gap-3 rounded-[1.7rem] border border-white/8 bg-white/3 p-4">
             <SidebarMetric label="藏書" value={`${books.length}`} />
             <SidebarMetric label="分鐘" value={`${totalReadingMinutes}`} />
             <SidebarMetric label="回聲" value={`${dueEchoes.length}`} />

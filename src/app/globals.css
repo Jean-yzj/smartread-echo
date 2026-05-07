@@ -12,7 +12,7 @@
   --accent: #6f8d7c;
   --accent-warm: #bb8552;
   --accent-ink: #725333;
-  --sidebar-bg: linear-gradient(180deg, #17191d 0%, #1d2127 100%);
+  --sidebar-bg: #1f2328;
   --sidebar-line: rgba(255, 255, 255, 0.06);
   --sidebar-ink: rgba(248, 248, 246, 0.94);
   --sidebar-soft: rgba(248, 248, 246, 0.56);
@@ -146,14 +146,14 @@ select:focus {
   gap: 0.9rem;
   border-radius: 1.4rem;
   border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(255, 255, 255, 0.02);
   padding: 0.95rem 1rem;
   color: var(--sidebar-ink);
 }
 
 .sidebar-link-active {
   border-color: rgba(207, 148, 91, 0.18);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(207, 148, 91, 0.14));
+  background: rgba(207, 148, 91, 0.14);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 10px 24px rgba(6, 8, 12, 0.16);
@@ -277,16 +277,14 @@ select:focus {
 .brand-card {
   border-radius: 1.7rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  background:
-    radial-gradient(circle at top right, rgba(207, 148, 91, 0.12), transparent 32%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
+  background: rgba(255, 255, 255, 0.03);
   padding: 1.1rem;
 }
 
 .sidebar-stats {
   border-radius: 1.7rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(255, 255, 255, 0.03);
   padding: 1rem;
 }
 
