@@ -1180,48 +1180,48 @@ function AppShell() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,190,114,0.26),_transparent_25%),radial-gradient(circle_at_bottom_right,_rgba(83,139,122,0.16),_transparent_26%),linear-gradient(180deg,#f7f3ea_0%,#efe7d8_45%,#e9e0d4_100%)] text-[var(--ink-strong)]">
-      <main className="mx-auto grid min-h-screen w-full max-w-[1560px] gap-5 px-4 py-4 lg:grid-cols-[300px_minmax(0,1fr)] lg:px-6 lg:py-6">
-        <aside className="glass-panel flex flex-col gap-5 rounded-[2rem] p-5 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
-          <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-[11px] font-bold tracking-[0.22em] text-[var(--ink-soft)] uppercase">
+    <div className="app-shell min-h-screen text-[var(--ink-strong)]">
+      <main className="mx-auto grid min-h-screen w-full max-w-[1540px] gap-5 px-4 py-4 lg:grid-cols-[290px_minmax(0,1fr)] lg:px-6 lg:py-6">
+        <aside className="app-sidebar flex flex-col gap-5 rounded-[2.2rem] p-5 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
+          <div className="brand-card">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-bold tracking-[0.22em] text-white/72 uppercase">
               <Sparkles className="h-3.5 w-3.5" />
               SmartRead Echo
             </div>
-            <div>
-              <h1 className="font-serif-display text-[2rem] leading-tight">
-                把閱讀變成會回來的記憶
-              </h1>
-              <p className="mt-2 text-sm text-[var(--ink-soft)]">
-                找到一本書，留下自己的話，然後在對的時間把它想起來。
-              </p>
+            <div className="mt-4">
+              <div className="font-serif-display text-[1.7rem] leading-tight text-white">
+                閱讀控制台
+              </div>
+              <div className="mt-2 text-sm text-white/56">
+                Read. Capture. Recall.
+              </div>
             </div>
           </div>
 
-          <div className="rounded-[1.7rem] bg-[linear-gradient(150deg,rgba(45,38,32,0.95),rgba(131,86,45,0.88))] p-4 text-white shadow-[0_24px_50px_rgba(62,42,19,0.24)]">
+          <div className="sidebar-stats">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[11px] tracking-[0.22em] text-white/70 uppercase">
-                  今日節奏
-                </p>
-                <div className="mt-2 text-3xl font-semibold">{inkDrops}</div>
-                <div className="mt-1 text-sm text-white/76">
+                <div className="text-[11px] tracking-[0.22em] text-white/44 uppercase">
+                  Progress
+                </div>
+                <div className="mt-2 text-3xl font-semibold text-white">{inkDrops}</div>
+                <div className="mt-1 text-sm text-white/62">
                   Lv.{level.level} {level.label}
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2 text-sm">
+              <div className="rounded-2xl border border-white/8 bg-white/6 px-3 py-2 text-sm text-white/82">
                 {streakDays} 天
               </div>
             </div>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/12">
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
               <div
-                className="h-full rounded-full bg-[linear-gradient(90deg,#ffe0a8,#ffd18f,#f7b85f)]"
+                className="h-full rounded-full bg-[linear-gradient(90deg,#f8d9a9,#e7ab66,#cf8c4f)]"
                 style={{
                   width: `${nextLevelConfig ? ((inkDrops - currentLevelConfig.min) / (nextLevelConfig.min - currentLevelConfig.min)) * 100 : 100}%`,
                 }}
               />
             </div>
-            <div className="mt-3 text-xs text-white/72">
+            <div className="mt-3 text-xs text-white/48">
               {nextLevelConfig
                 ? `距離 Lv.${nextLevelConfig.level} 還差 ${Math.max(0, nextLevelConfig.min - inkDrops)} 點`
                 : "目前已達最高等級"}
@@ -1239,58 +1239,52 @@ function AppShell() {
                 >
                   <span className="sidebar-icon">{section.icon}</span>
                   <span className="min-w-0 text-left">
-                    <span className="block text-sm font-semibold">
+                    <span className="block text-sm font-semibold text-white">
                       {section.title}
                     </span>
-                    <span className="block text-xs text-[var(--ink-soft)]">
-                      {section.description}
+                    <span className="mt-0.5 block text-[11px] tracking-[0.18em] text-white/40 uppercase">
+                      {section.short}
                     </span>
                   </span>
-                  <ChevronRight className="ml-auto h-4 w-4 text-[var(--ink-soft)]" />
+                  <ChevronRight className="ml-auto h-4 w-4 text-white/36" />
                 </button>
               );
             })}
           </nav>
 
-          <div className="mt-auto grid gap-3 rounded-[1.6rem] border border-white/65 bg-white/68 p-4">
-            <MiniMetric label="藏書" value={`${books.length} 本`} />
-            <MiniMetric label="閱讀總時數" value={`${totalReadingMinutes} 分`} />
-            <MiniMetric label="待回聲" value={`${dueEchoes.length} 則`} />
-            <MiniMetric label="收藏金句" value={`${favoriteNotes.length} 則`} />
+          <div className="mt-auto grid grid-cols-2 gap-3 rounded-[1.7rem] border border-white/8 bg-white/6 p-4">
+            <SidebarMetric label="藏書" value={`${books.length}`} />
+            <SidebarMetric label="分鐘" value={`${totalReadingMinutes}`} />
+            <SidebarMetric label="回聲" value={`${dueEchoes.length}`} />
+            <SidebarMetric label="金句" value={`${favoriteNotes.length}`} />
           </div>
         </aside>
 
         <section className="flex min-w-0 flex-col gap-5">
           <header className="glass-panel rounded-[2rem] p-5 md:p-6">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div className="workspace-header">
               <div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-[var(--line-soft)] bg-white/72 px-3 py-1 text-xs font-semibold text-[var(--accent-ink)]">
                   {currentSection.icon}
                   {currentSection.short}
                 </div>
-                <h2 className="mt-3 font-serif-display text-4xl leading-tight md:text-5xl">
+                <h2 className="mt-3 font-serif-display text-[2.35rem] leading-tight md:text-[3rem]">
                   {currentSection.title}
                 </h2>
-                <p className="mt-3 max-w-2xl text-sm text-[var(--ink-soft)] md:text-base">
-                  {activeSection === "search" &&
-                    "先把要讀的書放進來，讓搜尋、封面、作者和頁數自己到位。"}
-                  {activeSection === "shelf" &&
-                    "用分類和進度把你的閱讀清單整理成一個真的看得懂的書櫃。"}
-                  {activeSection === "focus" &&
-                    "像手機閱讀 App 一樣，專心閱讀、計時並記錄每次專注。"}
-                  {activeSection === "notes" &&
-                    "所有摘錄和心得都集中在同一個筆記工作台。"}
-                  {activeSection === "review" &&
-                    "讓你寫下的內容在 1、7、30 天後重新浮現，變成長期記憶。"}
-                  {activeSection === "studio" &&
-                    "把閱讀成果整理成可分享、可匯出、可回看的個人知識資產。"}
+                <p className="section-note mt-2">
+                  {activeSection === "search" && "找書並建立資料"}
+                  {activeSection === "shelf" && "整理藏書與閱讀進度"}
+                  {activeSection === "focus" && "開始一段專注閱讀"}
+                  {activeSection === "notes" && "保存摘錄與想法"}
+                  {activeSection === "review" && "處理今日待複習內容"}
+                  {activeSection === "studio" && "整理分享與輸出"}
                 </p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[520px]">
+              <div className="hero-badges">
                 <HeroMetric label="平均進度" value={`${averageProgress}%`} />
                 <HeroMetric label="連續閱讀" value={`${streakDays} 天`} />
-                <HeroMetric label="回聲完成" value={`${completedEchoes.length} 次`} />
+                <HeroMetric label="完成回聲" value={`${completedEchoes.length}`} />
               </div>
             </div>
 
@@ -1312,8 +1306,8 @@ function AppShell() {
                 <span className="sidebar-icon">{section.icon}</span>
                 <span className="min-w-0 text-left">
                   <span className="block text-sm font-semibold">{section.title}</span>
-                  <span className="block text-xs text-[var(--ink-soft)]">
-                    {section.description}
+                  <span className="block text-[11px] tracking-[0.18em] text-[var(--ink-soft)] uppercase">
+                    {section.short}
                   </span>
                 </span>
               </button>
@@ -1475,7 +1469,7 @@ function AppShell() {
                           <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
                         </div>
                       </div>
-                      <div className="rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
+                      <div className="detail-scroll rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
                         {selectedBook.description || "尚未填寫這本書的定位摘要。"}
                       </div>
                       <button
@@ -1511,7 +1505,7 @@ function AppShell() {
                         ))}
                       </div>
                       {filteredBooks.length ? (
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="book-grid">
                           {filteredBooks.map((book) => {
                             const active = selectedBookId === book.id;
                             return (
@@ -1520,7 +1514,7 @@ function AppShell() {
                                 className={`book-card ${active ? "book-card-active" : ""}`}
                                 onClick={() => setSelectedBookId(book.id)}
                               >
-                                <div className="flex gap-4">
+                                <div className="shelf-card">
                                   <div className="h-32 w-24 shrink-0 overflow-hidden rounded-[1rem] bg-[var(--paper-strong)]">
                                     {book.coverImage ? (
                                       // eslint-disable-next-line @next/next/no-img-element
@@ -1616,7 +1610,7 @@ function AppShell() {
                                 />
                               </div>
                             </div>
-                            <div className="rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
+                            <div className="detail-scroll rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
                               {selectedBook.description || "尚未填寫這本書的定位摘要。"}
                             </div>
                             <div className="flex flex-wrap gap-3">
@@ -2235,7 +2229,7 @@ function Panel({
           <div className="text-xs font-semibold tracking-[0.22em] text-[var(--accent-ink)] uppercase">
             {eyebrow}
           </div>
-          <h3 className="mt-2 flex items-center gap-2 font-serif-display text-[1.8rem] leading-tight">
+          <h3 className="mt-2 flex items-center gap-2 font-serif-display text-[1.55rem] leading-tight md:text-[1.8rem]">
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--paper-strong)] text-[var(--accent-ink)]">
               {icon}
             </span>
@@ -2299,19 +2293,19 @@ function TextAreaField({
   );
 }
 
-function MiniMetric({ label, value }: { label: string; value: string }) {
+function SidebarMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between rounded-[1.2rem] bg-white/70 px-4 py-3">
-      <span className="text-sm text-[var(--ink-soft)]">{label}</span>
-      <span className="font-semibold">{value}</span>
+    <div className="mini-kpi rounded-[1.15rem] border border-white/7 bg-white/5 px-3 py-3">
+      <span className="text-[11px] tracking-[0.16em] text-white/42 uppercase">{label}</span>
+      <span className="text-lg font-semibold text-white">{value}</span>
     </div>
   );
 }
 
 function HeroMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.35rem] border border-[var(--line-soft)] bg-white/72 px-4 py-4">
-      <div className="text-sm text-[var(--ink-soft)]">{label}</div>
+    <div className="stat-tile">
+      <div className="text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">{label}</div>
       <div className="mt-2 text-2xl font-semibold">{value}</div>
     </div>
   );
