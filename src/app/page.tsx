@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import Tesseract from "tesseract.js";
 import {
@@ -105,6 +105,7 @@ type OpenLibrarySearchResponse = {
     number_of_pages_median?: number;
     cover_i?: number;
     first_sentence?: string | string[];
+    publisher?: string[];
   }>;
 };
 
@@ -674,17 +675,6 @@ function extractMeaningfulTerms(value: string) {
   return [...new Set([...directTerms, ...grams])].slice(0, 24);
 }
 
-function estimateChapter(book: Book, pageHint?: number) {
-  const totalPages = Math.max(book.totalPages || 0, 1);
-  const chapterCount = Math.max(4, Math.min(12, Math.round(totalPages / 42)));
-  const chapterSize = Math.max(12, Math.ceil(totalPages / chapterCount));
-  const safePage = Math.max(1, Math.min(totalPages, pageHint || Math.round(totalPages * 0.28)));
-  const chapter = Math.max(1, Math.min(chapterCount, Math.ceil(safePage / chapterSize)));
-  const startPage = Math.max(1, (chapter - 1) * chapterSize + 1);
-  const endPage = Math.min(totalPages, chapter * chapterSize);
-  return { chapter, startPage, endPage };
-}
-
 function buildProblemRecommendations(
   books: Book[],
   notes: Note[],
@@ -752,24 +742,95 @@ function buildProblemRecommendations(
       }
 
       const strongestNote = noteMatches[0]?.note;
-      const chapterHintPage = strongestNote?.page || Math.max(1, Math.round(book.totalPages * 0.28));
-      const chapterEstimate = estimateChapter(book, chapterHintPage);
+      const recommendedPages = [
+        ...new Set(
+          noteMatches
+            .map((item) => item.note.page)
+            .filter((page): page is number => Number.isFinite(page) && page > 0),
+        ),
+      ].slice(0, 3);
+      const fallbackPage =
+        book.currentPage > 0
+          ? book.currentPage
+          : book.totalPages > 0
+            ? Math.max(1, Math.round(book.totalPages * 0.28))
+            : 1;
 
       return {
         book,
         score,
-        chapterEstimate,
         strongestNote,
+        recommendedPages,
+        fallbackPage,
         matchedTerms: [...matchedTerms].slice(0, 4),
         reason:
           strongestNote
-            ? `你的問題和你在《${book.title}》留下的筆記最接近，先回到這段內容會最快。`
-            : `這本書的主題和你現在的問題最貼近，適合先從中段建立方向。`,
+            ? `你的問題和你在《${book.title}》留下的筆記最接近，先回到你真的做過摘錄的頁面會最快。`
+            : `這本書的主題和你現在的問題最貼近，但你還沒有留下相關筆記，先從你目前進度附近開始。`,
       };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
+}
+
+function scoreBookMatch(
+  target: { title: string; author?: string },
+  candidate: BookSearchResult,
+) {
+  const targetTitle = normalizeKeyword(target.title);
+  const targetAuthor = normalizeKeyword(target.author ?? "");
+  const candidateTitle = normalizeKeyword(candidate.title);
+  const candidateAuthor = normalizeKeyword(candidate.author);
+
+  let score = 0;
+
+  if (candidateTitle === targetTitle) {
+    score += 14;
+  } else if (
+    candidateTitle.includes(targetTitle) ||
+    targetTitle.includes(candidateTitle)
+  ) {
+    score += 9;
+  }
+
+  if (targetAuthor && candidateAuthor === targetAuthor) {
+    score += 10;
+  } else if (
+    targetAuthor &&
+    (candidateAuthor.includes(targetAuthor) || targetAuthor.includes(candidateAuthor))
+  ) {
+    score += 6;
+  }
+
+  if (candidate.totalPages > 0) {
+    score += 3;
+  }
+
+  return score;
+}
+
+function chooseVerifiedPageCount(candidates: BookSearchResult[]) {
+  const pageCounts = candidates
+    .map((item) => item.totalPages)
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+
+  if (!pageCounts.length) {
+    return 0;
+  }
+
+  const smallest = pageCounts[0];
+  const largest = pageCounts[pageCounts.length - 1];
+
+  if (smallest < 120 && largest >= 180 && largest / Math.max(smallest, 1) >= 1.7) {
+    return largest;
+  }
+
+  const middle = Math.floor(pageCounts.length / 2);
+  return pageCounts.length % 2 === 1
+    ? pageCounts[middle]
+    : Math.round((pageCounts[middle - 1] + pageCounts[middle]) / 2);
 }
 
 function AppShell() {
@@ -804,6 +865,7 @@ function AppShell() {
   const [bookSearchResults, setBookSearchResults] = useState<BookSearchResult[]>([]);
   const [bookSearchLoading, setBookSearchLoading] = useState(false);
   const [bookSearchMessage, setBookSearchMessage] = useState("");
+  const [metadataSyncingId, setMetadataSyncingId] = useState<string | null>(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("全部");
   const [shelfQuery, setShelfQuery] = useState("");
   const [problemQuery, setProblemQuery] = useState("");
@@ -971,57 +1033,139 @@ function AppShell() {
         ) / 100
       : 0;
 
-  async function searchBooksByTitle(keyword: string) {
+  async function fetchGoogleCandidates(keyword: string) {
+    const response = await fetch(
+      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(keyword)}&orderBy=relevance&printType=books&maxResults=8`,
+    );
+    if (!response.ok) {
+      throw new Error(`google-books-${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      items?: Array<{
+        volumeInfo?: {
+          title?: string;
+          authors?: string[];
+          description?: string;
+          pageCount?: number;
+          publisher?: string;
+          imageLinks?: { thumbnail?: string };
+          industryIdentifiers?: Array<{
+            type?: string;
+            identifier?: string;
+          }>;
+        };
+      }>;
+    };
+
+    return (data.items ?? []).map((item) => {
+      const volume = item.volumeInfo ?? {};
+      const isbn =
+        volume.industryIdentifiers?.find((id) => id.type?.includes("ISBN"))
+          ?.identifier ?? "";
+
+      return normalizeBookResult({
+        title: volume.title ?? "未命名書籍",
+        author: volume.authors?.join(", ") ?? "",
+        category: "",
+        isbn,
+        totalPages: volume.pageCount ?? 0,
+        description: volume.description ?? "",
+        coverImage:
+          volume.imageLinks?.thumbnail?.replace("http://", "https://") ?? "",
+        source: volume.publisher
+          ? `Google Books · ${volume.publisher}`
+          : "Google Books",
+      });
+    });
+  }
+
+  async function fetchOpenLibraryCandidates(keyword: string) {
+    const fallbackResponse = await fetch(
+      `https://openlibrary.org/search.json?q=${encodeURIComponent(keyword)}&limit=8`,
+    );
+    if (!fallbackResponse.ok) {
+      throw new Error(`open-library-${fallbackResponse.status}`);
+    }
+
+    const fallbackData = (await fallbackResponse.json()) as OpenLibrarySearchResponse;
+
+    return (fallbackData.docs ?? [])
+      .filter((item) => item.title)
+      .slice(0, 8)
+      .map((item) =>
+        normalizeBookResult({
+          title: item.title ?? "未命名書籍",
+          author: item.author_name?.join(", ") ?? "",
+          category: "",
+          isbn: item.isbn?.[0] ?? "",
+          totalPages: item.number_of_pages_median ?? 0,
+          description: Array.isArray(item.first_sentence)
+            ? item.first_sentence[0] ?? ""
+            : item.first_sentence ?? "",
+          coverImage: item.cover_i
+            ? `https://covers.openlibrary.org/b/id/${item.cover_i}-L.jpg`
+            : "",
+          source: item.publisher?.[0]
+            ? `Open Library · ${item.publisher[0]}`
+            : "Open Library",
+        }),
+      );
+  }
+
+  async function verifyBookMetadata(result: BookSearchResult) {
+    const keyword = [result.title, result.author].filter(Boolean).join(" ");
+    const settled = await Promise.allSettled([
+      fetchGoogleCandidates(keyword),
+      fetchOpenLibraryCandidates(keyword),
+    ]);
+
+    const merged = dedupeBookResults(
+      settled.flatMap((entry) => (entry.status === "fulfilled" ? entry.value : [])),
+    );
+
+    const ranked = merged
+      .map((candidate) => ({
+        candidate,
+        score: scoreBookMatch(
+          { title: result.title, author: result.author },
+          candidate,
+        ),
+      }))
+      .filter((entry) => entry.score >= 12)
+      .sort((a, b) => b.score - a.score);
+
+    if (!ranked.length) {
+      return null;
+    }
+
+    const reliableCandidates = ranked
+      .filter((entry) => entry.score >= ranked[0].score - 3)
+      .map((entry) => entry.candidate);
+
+    const verifiedPageCount = chooseVerifiedPageCount(reliableCandidates);
+    const best = ranked[0].candidate;
+
+    return {
+      ...result,
+      totalPages: verifiedPageCount || best.totalPages || result.totalPages,
+      source: best.source || result.source,
+      description: result.description || best.description,
+      coverImage: result.coverImage || best.coverImage,
+      isbn: result.isbn || best.isbn,
+    };
+  }
+
+  const searchBooksByTitle = useEffectEvent(async (keyword: string) => {
     setBookSearchLoading(true);
     setBookSearchMessage("");
     const localResults = searchLocalCatalog(keyword);
 
     try {
-      const response = await fetch(
-        `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(keyword)}&orderBy=relevance&printType=books&maxResults=8`,
-      );
-      if (!response.ok) {
-        throw new Error(`google-books-${response.status}`);
-      }
-      const data = (await response.json()) as {
-        items?: Array<{
-          volumeInfo?: {
-            title?: string;
-            authors?: string[];
-            description?: string;
-            pageCount?: number;
-            imageLinks?: { thumbnail?: string };
-            industryIdentifiers?: Array<{
-              type?: string;
-              identifier?: string;
-            }>;
-          };
-        }>;
-      };
-
-      if (!data.items?.length) {
+      const results = await fetchGoogleCandidates(keyword);
+      if (!results.length) {
         throw new Error("google-books-empty");
       }
-
-      const results = data.items.map((item) => {
-        const volume = item.volumeInfo ?? {};
-        const isbn =
-          volume.industryIdentifiers?.find((id) =>
-            id.type?.includes("ISBN"),
-          )?.identifier ?? "";
-
-        return normalizeBookResult({
-          title: volume.title ?? "未命名書籍",
-          author: volume.authors?.join(", ") ?? "",
-          category: "",
-          isbn,
-          totalPages: volume.pageCount ?? 0,
-          description: volume.description ?? "",
-          coverImage:
-            volume.imageLinks?.thumbnail?.replace("http://", "https://") ?? "",
-          source: "Google Books",
-        });
-      });
 
       const mergedResults = dedupeBookResults([...localResults, ...results]).slice(
         0,
@@ -1035,35 +1179,7 @@ function AppShell() {
       );
     } catch {
       try {
-        const fallbackResponse = await fetch(
-          `https://openlibrary.org/search.json?q=${encodeURIComponent(keyword)}&limit=8`,
-        );
-        if (!fallbackResponse.ok) {
-          throw new Error(`open-library-${fallbackResponse.status}`);
-        }
-
-        const fallbackData =
-          (await fallbackResponse.json()) as OpenLibrarySearchResponse;
-
-        const results = (fallbackData.docs ?? [])
-          .filter((item) => item.title)
-          .slice(0, 8)
-          .map((item) =>
-            normalizeBookResult({
-            title: item.title ?? "未命名書籍",
-            author: item.author_name?.join(", ") ?? "",
-            category: "",
-            isbn: item.isbn?.[0] ?? "",
-            totalPages: item.number_of_pages_median ?? 0,
-            description: Array.isArray(item.first_sentence)
-              ? item.first_sentence[0] ?? ""
-              : item.first_sentence ?? "",
-            coverImage: item.cover_i
-              ? `https://covers.openlibrary.org/b/id/${item.cover_i}-L.jpg`
-              : "",
-            source: "Open Library",
-            }),
-          );
+        const results = await fetchOpenLibraryCandidates(keyword);
 
         const mergedResults = dedupeBookResults([
           ...localResults,
@@ -1087,7 +1203,7 @@ function AppShell() {
         );
       }
     }
-  }
+  });
 
   useEffect(() => {
     const keyword = bookSearchQuery.trim();
@@ -1105,7 +1221,8 @@ function AppShell() {
     return () => window.clearTimeout(timeoutId);
   }, [bookSearchQuery]);
 
-  function applyBookResult(result: BookSearchResult) {
+  async function applyBookResult(result: BookSearchResult) {
+    setMetadataSyncingId(result.isbn || result.title);
     setBookForm({
       title: result.title,
       author: result.author,
@@ -1117,8 +1234,84 @@ function AppShell() {
     });
     setBookSearchResults([]);
     setBookSearchQuery(result.title);
-    setBookSearchMessage("已帶入書籍資料");
-    setStatus("已帶入書籍資料");
+    setBookSearchMessage("正在校正頁數與版本資料...");
+    setStatus("正在校正頁數與版本資料...");
+
+    try {
+      const verified = await verifyBookMetadata(result);
+      const finalResult = verified ?? result;
+      setBookForm({
+        title: finalResult.title,
+        author: finalResult.author,
+        category: categorizeBook(finalResult),
+        isbn: finalResult.isbn,
+        totalPages: finalResult.totalPages ? String(finalResult.totalPages) : "",
+        description: finalResult.description,
+        coverImage: finalResult.coverImage,
+      });
+      setBookSearchMessage(
+        verified
+          ? `已校正頁數：${finalResult.totalPages || "未提供"} 頁`
+          : "已帶入書籍資料",
+      );
+      setStatus(
+        verified
+          ? `已校正《${finalResult.title}》頁數`
+          : "已帶入書籍資料",
+      );
+    } catch {
+      setBookSearchMessage("已帶入書籍資料");
+      setStatus("已帶入書籍資料");
+    } finally {
+      setMetadataSyncingId(null);
+    }
+  }
+
+  async function recalibrateBook(bookId: string) {
+    const book = books.find((item) => item.id === bookId);
+    if (!book) {
+      return;
+    }
+
+    setMetadataSyncingId(book.id);
+    setStatus(`正在校正《${book.title}》資料...`);
+
+    try {
+      const verified = await verifyBookMetadata({
+        title: book.title,
+        author: book.author,
+        category: book.category,
+        isbn: book.isbn,
+        totalPages: book.totalPages,
+        description: book.description,
+        coverImage: book.coverImage,
+        source: "",
+      });
+
+      if (!verified) {
+        setStatus(`找不到更穩定的版本資料：${book.title}`);
+        return;
+      }
+
+      setBooks((current) =>
+        current.map((item) =>
+          item.id === bookId
+            ? {
+                ...item,
+                isbn: verified.isbn || item.isbn,
+                totalPages: verified.totalPages || item.totalPages,
+                description: verified.description || item.description,
+                coverImage: verified.coverImage || item.coverImage,
+              }
+            : item,
+        ),
+      );
+      setStatus(`已重新校正《${book.title}》頁數`);
+    } catch {
+      setStatus(`校正失敗：${book.title}`);
+    } finally {
+      setMetadataSyncingId(null);
+    }
   }
 
   function handleAddBook() {
@@ -1589,7 +1782,7 @@ function AppShell() {
                           <button
                             key={`${result.title}-${result.author}-${result.isbn}`}
                             className="result-row"
-                            onClick={() => applyBookResult(result)}
+                            onClick={() => void applyBookResult(result)}
                           >
                             <div className="flex min-w-0 items-center gap-3">
                               <div className="h-20 w-14 shrink-0 overflow-hidden rounded-[0.9rem] bg-[var(--paper-strong)]">
@@ -1615,7 +1808,7 @@ function AppShell() {
                               </div>
                             </div>
                             <span className="rounded-full border border-[var(--line-soft)] px-3 py-1 text-xs">
-                              選擇
+                              {metadataSyncingId === (result.isbn || result.title) ? "校正中" : "選擇"}
                             </span>
                           </button>
                         ))}
@@ -1929,6 +2122,12 @@ function AppShell() {
                               </button>
                               <button
                                 className="button-secondary"
+                                onClick={() => void recalibrateBook(selectedBook.id)}
+                              >
+                                {metadataSyncingId === selectedBook.id ? "校正中..." : "重新校正資料"}
+                              </button>
+                              <button
+                                className="button-secondary"
                                 onClick={() => deleteBook(selectedBook.id)}
                               >
                                 移出書櫃
@@ -2001,7 +2200,7 @@ function AppShell() {
                   <div className="grid gap-4">
                     {problemRecommendations.map((item, index) => (
                       <div
-                        key={`${item.book.id}-${item.chapterEstimate.chapter}`}
+                        key={`${item.book.id}-${index}`}
                         className="rounded-[1.7rem] border border-[var(--line-soft)] bg-white/78 p-5 shadow-[0_18px_34px_rgba(77,56,25,0.06)]"
                       >
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -2011,10 +2210,11 @@ function AppShell() {
                                 Top {index + 1}
                               </span>
                               <Tag>{item.book.category}</Tag>
-                              <Tag>第 {item.chapterEstimate.chapter} 章</Tag>
-                              <Tag>
-                                {item.chapterEstimate.startPage}-{item.chapterEstimate.endPage} 頁
-                              </Tag>
+                              {item.recommendedPages.length ? (
+                                <Tag>第 {item.recommendedPages.join("、")} 頁</Tag>
+                              ) : (
+                                <Tag>第 {item.fallbackPage} 頁附近</Tag>
+                              )}
                             </div>
                             <div className="mt-3 font-serif-display text-[2rem] leading-tight">
                               {item.book.title}
@@ -2054,16 +2254,20 @@ function AppShell() {
                           <div className="rounded-[1.35rem] bg-[var(--paper-strong)] p-4">
                             <div className="text-sm font-semibold">推薦閱讀位置</div>
                             <div className="mt-2 text-2xl font-semibold text-[var(--accent-ink)]">
-                              第 {item.chapterEstimate.chapter} 章
+                              {item.recommendedPages.length
+                                ? `先看第 ${item.recommendedPages[0]} 頁`
+                                : `先從第 ${item.fallbackPage} 頁附近開始`}
                             </div>
                             <div className="mt-1 text-sm text-[var(--ink-soft)]">
-                              約第 {item.chapterEstimate.startPage} 到 {item.chapterEstimate.endPage} 頁
+                              {item.recommendedPages.length
+                                ? `這些頁面是你自己留下過摘錄的真實位置：${item.recommendedPages.join("、")} 頁`
+                                : "這本書目前還沒有命中的私人筆記，所以先從你的閱讀進度附近開始。"}
                             </div>
                             <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--line-soft)]">
                               <div
                                 className="h-full rounded-full bg-[linear-gradient(90deg,var(--accent),var(--accent-warm))]"
                                 style={{
-                                  width: `${Math.round((item.chapterEstimate.endPage / Math.max(item.book.totalPages, 1)) * 100)}%`,
+                                  width: `${Math.round((((item.recommendedPages[0] ?? item.fallbackPage) || 1) / Math.max(item.book.totalPages, 1)) * 100)}%`,
                                 }}
                               />
                             </div>
@@ -2087,7 +2291,7 @@ function AppShell() {
                               </>
                             ) : (
                               <div className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
-                                你還沒在這本書留下相關筆記，先從這個章節開始補第一則摘錄會最有幫助。
+                                你還沒在這本書留下相關筆記，所以這次推薦改成從你目前讀到的位置附近開始，而不是亂猜頁數。
                               </div>
                             )}
                           </div>
