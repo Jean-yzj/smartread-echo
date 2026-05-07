@@ -29,6 +29,7 @@ type Book = {
   id: string;
   title: string;
   author: string;
+  category: string;
   isbn: string;
   totalPages: number;
   currentPage: number;
@@ -58,6 +59,7 @@ type Session = {
 type BookForm = {
   title: string;
   author: string;
+  category: string;
   isbn: string;
   totalPages: string;
   description: string;
@@ -73,15 +75,34 @@ type NoteForm = {
   imageDataUrl: string;
 };
 
-type AppSection = "library" | "lab" | "echo";
+type AppSection =
+  | "search"
+  | "shelf"
+  | "focus"
+  | "notes"
+  | "review"
+  | "studio";
 
 type BookSearchResult = {
   title: string;
   author: string;
+  category: string;
   isbn: string;
   totalPages: number;
   description: string;
   coverImage: string;
+  source?: string;
+};
+
+type OpenLibrarySearchResponse = {
+  docs?: Array<{
+    title?: string;
+    author_name?: string[];
+    isbn?: string[];
+    number_of_pages_median?: number;
+    cover_i?: number;
+    first_sentence?: string | string[];
+  }>;
 };
 
 const STORAGE_KEY = "smartread-echo-state";
@@ -94,11 +115,125 @@ const LEVELS = [
   { level: 4, label: "架構師", min: 500, unlock: "完整知識圖譜與長期閱讀節奏" },
 ] as const;
 
+const LOCAL_BOOK_CATALOG: BookSearchResult[] = [
+  {
+    title: "原子習慣",
+    author: "James Clear",
+    category: "習慣養成",
+    isbn: "9780735211292",
+    totalPages: 320,
+    description: "用微小但可重複的行為設計，建立會自己運轉的生活系統。",
+    coverImage:
+      "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "思考的框架",
+    author: "Shane Parrish",
+    category: "思維決策",
+    isbn: "9780593719978",
+    totalPages: 304,
+    description: "用模型與原則整理決策，讓閱讀最後會回到真實行動。",
+    coverImage:
+      "https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "深度工作力",
+    author: "Cal Newport",
+    category: "生產力",
+    isbn: "9781455586691",
+    totalPages: 304,
+    description: "建立長時間專注與高價值輸出的工作方法。",
+    coverImage:
+      "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "一如既往",
+    author: "Morgan Housel",
+    category: "商業思維",
+    isbn: "9780593332702",
+    totalPages: 224,
+    description: "從人性與歷史的重複模式，看懂真正不會改變的事情。",
+    coverImage:
+      "https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "快思慢想",
+    author: "Daniel Kahneman",
+    category: "思維決策",
+    isbn: "9780374533557",
+    totalPages: 512,
+    description: "理解直覺與理性如何共同影響判斷與決策。",
+    coverImage:
+      "https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "為什麼要睡覺？",
+    author: "Matthew Walker",
+    category: "健康科學",
+    isbn: "9781501144318",
+    totalPages: 368,
+    description: "從腦科學與健康角度重建你對睡眠的理解。",
+    coverImage:
+      "https://images.unsplash.com/photo-1519682337058-a94d519337bc?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "納瓦爾寶典",
+    author: "Eric Jorgenson",
+    category: "人生策略",
+    isbn: "9781544514215",
+    totalPages: 242,
+    description: "整理納瓦爾對財富、判斷力與人生設計的核心觀點。",
+    coverImage:
+      "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "被討厭的勇氣",
+    author: "岸見一郎, 古賀史健",
+    category: "心理成長",
+    isbn: "9789863570110",
+    totalPages: 288,
+    description: "以對話形式理解阿德勒心理學與自我課題。",
+    coverImage:
+      "https://images.unsplash.com/photo-1511108690759-009324a90311?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "人類大歷史",
+    author: "Yuval Noah Harari",
+    category: "歷史社會",
+    isbn: "9780062316097",
+    totalPages: 464,
+    description: "從認知革命到現代社會，重新理解人類如何走到今天。",
+    coverImage:
+      "https://images.unsplash.com/photo-1476275466078-4007374efbbe?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+  {
+    title: "最高學以致用法",
+    author: "Peter C. Brown, Henry L. Roediger III, Mark A. McDaniel",
+    category: "學習方法",
+    isbn: "9780674729018",
+    totalPages: 313,
+    description: "用科學方法提升學習效率與長期記憶效果。",
+    coverImage:
+      "https://images.unsplash.com/photo-1526243741027-444d633d7365?auto=format&fit=crop&w=900&q=80",
+    source: "SmartRead 推薦書庫",
+  },
+];
+
 const demoBooks: Book[] = [
   {
     id: "book-atomic",
     title: "原子習慣",
     author: "James Clear",
+    category: "習慣養成",
     isbn: "9780735211292",
     totalPages: 320,
     currentPage: 96,
@@ -111,6 +246,7 @@ const demoBooks: Book[] = [
     id: "book-thinking",
     title: "思考的框架",
     author: "Shane Parrish",
+    category: "思維決策",
     isbn: "9780593719978",
     totalPages: 304,
     currentPage: 38,
@@ -174,25 +310,46 @@ const sections: Array<{
   icon: React.ReactNode;
 }> = [
   {
-    id: "library",
-    title: "書籍整理",
-    short: "建立書櫃",
-    description: "找書、建檔、更新閱讀進度",
+    id: "search",
+    title: "找書",
+    short: "Book Search",
+    description: "搜尋書名並建立新書",
+    icon: <Search className="h-4 w-4" />,
+  },
+  {
+    id: "shelf",
+    title: "書櫃",
+    short: "My Shelf",
+    description: "分類、封面與閱讀進度",
     icon: <Library className="h-4 w-4" />,
   },
   {
-    id: "lab",
-    title: "Reading Lab",
-    short: "專注閱讀",
-    description: "計時、OCR 摘錄、整理心得",
+    id: "focus",
+    title: "專注",
+    short: "Focus",
+    description: "閱讀計時與白噪音",
     icon: <Clock3 className="h-4 w-4" />,
   },
   {
-    id: "echo",
-    title: "回聲複習",
-    short: "長期記住",
-    description: "複習、分享、輸出與升級",
+    id: "notes",
+    title: "筆記",
+    short: "Capture",
+    description: "OCR、摘錄與反思",
+    icon: <ScanText className="h-4 w-4" />,
+  },
+  {
+    id: "review",
+    title: "回聲",
+    short: "Echo",
+    description: "待複習內容與收藏金句",
     icon: <Brain className="h-4 w-4" />,
+  },
+  {
+    id: "studio",
+    title: "輸出",
+    short: "Studio",
+    description: "分享、匯出與知識圖譜",
+    icon: <Share2 className="h-4 w-4" />,
   },
 ];
 
@@ -243,6 +400,33 @@ function createPreReadGuide(book: Book) {
   ];
 
   return { audience, questions };
+}
+
+function normalizeKeyword(value: string) {
+  return value.toLowerCase().replace(/[\s:：\-_/.,()（）]/g, "");
+}
+
+function dedupeBookResults(results: BookSearchResult[]) {
+  const seen = new Set<string>();
+  return results.filter((result) => {
+    const key = normalizeKeyword(`${result.title}-${result.author}-${result.isbn}`);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function searchLocalCatalog(keyword: string) {
+  const normalizedKeyword = normalizeKeyword(keyword);
+
+  return LOCAL_BOOK_CATALOG.filter((book) => {
+    const haystack = normalizeKeyword(
+      `${book.title}${book.author}${book.isbn}${book.description}`,
+    );
+    return haystack.includes(normalizedKeyword);
+  }).slice(0, 6);
 }
 
 function buildEchoPrompt(note: Note, book?: Book) {
@@ -352,7 +536,7 @@ function extractConcepts(notes: Note[], booksById: Record<string, Book>) {
 }
 
 function AppShell() {
-  const [activeSection, setActiveSection] = useState<AppSection>("library");
+  const [activeSection, setActiveSection] = useState<AppSection>("search");
   const [books, setBooks] = useState<Book[]>(demoBooks);
   const [notes, setNotes] = useState<Note[]>(demoNotes);
   const [sessions, setSessions] = useState<Session[]>(demoSessions);
@@ -363,6 +547,7 @@ function AppShell() {
   const [bookForm, setBookForm] = useState<BookForm>({
     title: "",
     author: "",
+    category: "",
     isbn: "",
     totalPages: "",
     description: "",
@@ -381,6 +566,8 @@ function AppShell() {
   const [bookSearchQuery, setBookSearchQuery] = useState("");
   const [bookSearchResults, setBookSearchResults] = useState<BookSearchResult[]>([]);
   const [bookSearchLoading, setBookSearchLoading] = useState(false);
+  const [bookSearchMessage, setBookSearchMessage] = useState("");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("全部");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [readingBookId, setReadingBookId] = useState(demoBooks[0]?.id ?? "");
   const [selectedBookId, setSelectedBookId] = useState(demoBooks[0]?.id ?? "");
@@ -520,6 +707,18 @@ function AppShell() {
   const currentSection = sections.find(
     (section) => section.id === activeSection,
   )!;
+  const bookCategories = [
+    "全部",
+    ...new Set(
+      books
+        .map((book) => book.category?.trim())
+        .filter((category): category is string => Boolean(category)),
+    ),
+  ];
+  const filteredBooks =
+    selectedCategoryFilter === "全部"
+      ? books
+      : books.filter((book) => book.category === selectedCategoryFilter);
   const averageProgress =
     books.length > 0
       ? Math.round(
@@ -530,11 +729,16 @@ function AppShell() {
 
   async function searchBooksByTitle(keyword: string) {
     setBookSearchLoading(true);
+    setBookSearchMessage("");
+    const localResults = searchLocalCatalog(keyword);
 
     try {
       const response = await fetch(
-        `https://www.googleapis.com/books/v1/volumes?q=intitle:${encodeURIComponent(keyword)}&maxResults=6&langRestrict=zh`,
+        `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(keyword)}&orderBy=relevance&printType=books&maxResults=8`,
       );
+      if (!response.ok) {
+        throw new Error(`google-books-${response.status}`);
+      }
       const data = (await response.json()) as {
         items?: Array<{
           volumeInfo?: {
@@ -552,9 +756,7 @@ function AppShell() {
       };
 
       if (!data.items?.length) {
-        setBookSearchResults([]);
-        setBookSearchLoading(false);
-        return;
+        throw new Error("google-books-empty");
       }
 
       const results = data.items.map((item) => {
@@ -567,20 +769,77 @@ function AppShell() {
         return {
           title: volume.title ?? "未命名書籍",
           author: volume.authors?.join(", ") ?? "",
+          category: "",
           isbn,
           totalPages: volume.pageCount ?? 0,
           description: volume.description ?? "",
           coverImage:
             volume.imageLinks?.thumbnail?.replace("http://", "https://") ?? "",
+          source: "Google Books",
         };
       });
 
-      setBookSearchResults(results);
+      const mergedResults = dedupeBookResults([...localResults, ...results]).slice(
+        0,
+        8,
+      );
+
+      setBookSearchResults(mergedResults);
       setBookSearchLoading(false);
+      setBookSearchMessage(
+        mergedResults.length ? "" : "目前沒有找到相符書籍",
+      );
     } catch {
-      setBookSearchResults([]);
-      setBookSearchLoading(false);
-      setStatus("書名搜尋失敗，請稍後再試");
+      try {
+        const fallbackResponse = await fetch(
+          `https://openlibrary.org/search.json?q=${encodeURIComponent(keyword)}&limit=8`,
+        );
+        if (!fallbackResponse.ok) {
+          throw new Error(`open-library-${fallbackResponse.status}`);
+        }
+
+        const fallbackData =
+          (await fallbackResponse.json()) as OpenLibrarySearchResponse;
+
+        const results = (fallbackData.docs ?? [])
+          .filter((item) => item.title)
+          .slice(0, 8)
+          .map((item) => ({
+            title: item.title ?? "未命名書籍",
+            author: item.author_name?.join(", ") ?? "",
+            category: "",
+            isbn: item.isbn?.[0] ?? "",
+            totalPages: item.number_of_pages_median ?? 0,
+            description: Array.isArray(item.first_sentence)
+              ? item.first_sentence[0] ?? ""
+              : item.first_sentence ?? "",
+            coverImage: item.cover_i
+              ? `https://covers.openlibrary.org/b/id/${item.cover_i}-L.jpg`
+              : "",
+            source: "Open Library",
+          }));
+
+        const mergedResults = dedupeBookResults([
+          ...localResults,
+          ...results,
+        ]).slice(0, 8);
+
+        setBookSearchResults(mergedResults);
+        setBookSearchLoading(false);
+        setBookSearchMessage(
+          mergedResults.length
+            ? "Google 書庫暫時忙碌，已改用備援搜尋"
+            : "找不到相符書籍，可直接手動新增",
+        );
+      } catch {
+        setBookSearchResults(localResults);
+        setBookSearchLoading(false);
+        setBookSearchMessage(
+          localResults.length
+            ? "外部書庫暫時不可用，已改用內建書單"
+            : "書名搜尋暫時失敗，請直接手動新增書籍資料",
+        );
+      }
     }
   }
 
@@ -591,6 +850,7 @@ function AppShell() {
       if (!keyword) {
         setBookSearchResults([]);
         setBookSearchLoading(false);
+        setBookSearchMessage("");
         return;
       }
       void searchBooksByTitle(keyword);
@@ -603,6 +863,7 @@ function AppShell() {
     setBookForm({
       title: result.title,
       author: result.author,
+      category: result.category,
       isbn: result.isbn,
       totalPages: result.totalPages ? String(result.totalPages) : "",
       description: result.description,
@@ -610,6 +871,7 @@ function AppShell() {
     });
     setBookSearchResults([]);
     setBookSearchQuery(result.title);
+    setBookSearchMessage("已帶入書籍資料");
     setStatus("已帶入書籍資料");
   }
 
@@ -623,6 +885,7 @@ function AppShell() {
       id: uid("book"),
       title: bookForm.title.trim(),
       author: bookForm.author.trim(),
+      category: bookForm.category.trim() || "未分類",
       isbn: bookForm.isbn.trim(),
       totalPages: Number(bookForm.totalPages || 0),
       currentPage: 0,
@@ -645,6 +908,7 @@ function AppShell() {
     setBookForm({
       title: "",
       author: "",
+      category: "",
       isbn: "",
       totalPages: "",
       description: "",
@@ -652,6 +916,7 @@ function AppShell() {
     });
     setBookSearchQuery("");
     setBookSearchResults([]);
+    setBookSearchMessage("");
     setStatus("書籍已加入書櫃");
   }
 
@@ -727,7 +992,7 @@ function AppShell() {
 
   function editNote(note: Note) {
     setEditingNoteId(note.id);
-    setActiveSection("lab");
+    setActiveSection("notes");
     setReadingBookId(note.bookId);
     setSelectedBookId(note.bookId);
     setNoteForm({
@@ -1007,12 +1272,18 @@ function AppShell() {
                   {currentSection.title}
                 </h2>
                 <p className="mt-3 max-w-2xl text-sm text-[var(--ink-soft)] md:text-base">
-                  {activeSection === "library" &&
+                  {activeSection === "search" &&
                     "先把要讀的書放進來，讓搜尋、封面、作者和頁數自己到位。"}
-                  {activeSection === "lab" &&
-                    "在同一個工作台完成專注閱讀、OCR 摘錄和自己的反思。"}
-                  {activeSection === "echo" &&
+                  {activeSection === "shelf" &&
+                    "用分類和進度把你的閱讀清單整理成一個真的看得懂的書櫃。"}
+                  {activeSection === "focus" &&
+                    "像手機閱讀 App 一樣，專心閱讀、計時並記錄每次專注。"}
+                  {activeSection === "notes" &&
+                    "所有摘錄和心得都集中在同一個筆記工作台。"}
+                  {activeSection === "review" &&
                     "讓你寫下的內容在 1、7、30 天後重新浮現，變成長期記憶。"}
+                  {activeSection === "studio" &&
+                    "把閱讀成果整理成可分享、可匯出、可回看的個人知識資產。"}
                 </p>
               </div>
 
@@ -1049,267 +1320,333 @@ function AppShell() {
             ))}
           </div>
 
-          {activeSection === "library" ? (
-            <>
-              <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
-                <Panel
-                  title="加入新書"
-                  eyebrow="Book Intake"
-                  icon={<Search className="h-5 w-5" />}
-                >
-                  <div className="grid gap-4">
-                    <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-[var(--paper-strong)] p-4">
-                      <Field
-                        label="書名搜尋"
-                        value={bookSearchQuery}
-                        onChange={setBookSearchQuery}
-                        placeholder="輸入書名，例如：原子習慣"
-                      />
-                      {bookSearchLoading ? (
-                        <p className="mt-3 text-sm text-[var(--ink-soft)]">搜尋中...</p>
-                      ) : null}
-                      {bookSearchResults.length > 0 ? (
-                        <div className="mt-4 grid gap-3">
-                          {bookSearchResults.map((result) => (
-                            <button
-                              key={`${result.title}-${result.author}-${result.isbn}`}
-                              className="result-row"
-                              onClick={() => applyBookResult(result)}
-                            >
+          {activeSection === "search" ? (
+            <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+              <Panel title="找書加入書櫃" eyebrow="Book Search" icon={<Search className="h-5 w-5" />}>
+                <div className="grid gap-4">
+                  <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-[var(--paper-strong)] p-4">
+                    <Field
+                      label="書名搜尋"
+                      value={bookSearchQuery}
+                      onChange={setBookSearchQuery}
+                      placeholder="輸入書名，例如：原子習慣"
+                    />
+                    {bookSearchLoading ? (
+                      <p className="mt-3 text-sm text-[var(--ink-soft)]">搜尋中...</p>
+                    ) : null}
+                    {!bookSearchLoading && bookSearchMessage ? (
+                      <p className="mt-3 text-sm text-[var(--ink-soft)]">{bookSearchMessage}</p>
+                    ) : null}
+                    {bookSearchResults.length > 0 ? (
+                      <div className="mt-4 grid gap-3">
+                        {bookSearchResults.map((result) => (
+                          <button
+                            key={`${result.title}-${result.author}-${result.isbn}`}
+                            className="result-row"
+                            onClick={() => applyBookResult(result)}
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="h-20 w-14 shrink-0 overflow-hidden rounded-[0.9rem] bg-[var(--paper-strong)]">
+                                {result.coverImage ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={result.coverImage}
+                                    alt={result.title}
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : null}
+                              </div>
                               <div className="min-w-0">
                                 <div className="truncate font-semibold">{result.title}</div>
                                 <div className="text-sm text-[var(--ink-soft)]">
                                   {result.author || "作者未提供"}
                                 </div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {result.category ? <Tag>{result.category}</Tag> : null}
+                                  {result.totalPages ? <Tag>{result.totalPages} 頁</Tag> : null}
+                                  {result.source ? <Tag>{result.source}</Tag> : null}
+                                </div>
                               </div>
-                              <span className="rounded-full border border-[var(--line-soft)] px-3 py-1 text-xs">
-                                選擇
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <Field
-                        label="書名"
-                        value={bookForm.title}
-                        onChange={(value) =>
-                          setBookForm((current) => ({ ...current, title: value }))
-                        }
-                        placeholder="書名"
-                      />
-                      <Field
-                        label="作者"
-                        value={bookForm.author}
-                        onChange={(value) =>
-                          setBookForm((current) => ({ ...current, author: value }))
-                        }
-                        placeholder="作者"
-                      />
-                      <Field
-                        label="ISBN"
-                        value={bookForm.isbn}
-                        onChange={(value) =>
-                          setBookForm((current) => ({ ...current, isbn: value }))
-                        }
-                        placeholder="自動帶入或手動填寫"
-                      />
-                      <Field
-                        label="總頁數"
-                        value={bookForm.totalPages}
-                        onChange={(value) =>
-                          setBookForm((current) => ({ ...current, totalPages: value }))
-                        }
-                        placeholder="320"
-                      />
-                    </div>
-
-                    <TextAreaField
-                      label="書籍摘要"
-                      value={bookForm.description}
-                      onChange={(value) =>
-                        setBookForm((current) => ({ ...current, description: value }))
-                      }
-                      placeholder="保留這本書最重要的定位"
-                      rows={4}
-                    />
-
-                    <Field
-                      label="封面圖片"
-                      value={bookForm.coverImage}
-                      onChange={(value) =>
-                        setBookForm((current) => ({ ...current, coverImage: value }))
-                      }
-                      placeholder="https://..."
-                    />
-
-                    <button className="button-primary" onClick={handleAddBook}>
-                      <Plus className="h-4 w-4" />
-                      加入書櫃
-                    </button>
-                  </div>
-                </Panel>
-
-                <Panel
-                  title={selectedBook ? selectedBook.title : "閱讀儀表板"}
-                  eyebrow="Shelf Focus"
-                  icon={<BookOpen className="h-5 w-5" />}
-                >
-                  {selectedBook ? (
-                    <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-                      <div className="overflow-hidden rounded-[1.8rem] bg-[var(--paper-strong)] shadow-[0_18px_34px_rgba(76,55,24,0.08)]">
-                        {selectedBook.coverImage ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={selectedBook.coverImage}
-                            alt={selectedBook.title}
-                            className="h-full min-h-[300px] w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex min-h-[300px] items-center justify-center bg-[linear-gradient(140deg,#dbc9b0,#f7efe1)] text-[var(--ink-soft)]">
-                            無封面
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="grid gap-4">
-                        <div>
-                          <p className="text-sm text-[var(--ink-soft)]">
-                            {selectedBook.author || "作者未填寫"}
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <Tag>{selectedBook.isbn || "ISBN 未填寫"}</Tag>
-                            <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
-                            <Tag>{getProgress(selectedBook)}% 已讀</Tag>
-                          </div>
-                        </div>
-
-                        <div className="rounded-[1.5rem] bg-[var(--paper-strong)] p-4">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-[var(--ink-soft)]">閱讀進度</span>
-                            <span className="font-semibold">
-                              {selectedBook.currentPage}/{selectedBook.totalPages || "?"}
+                            </div>
+                            <span className="rounded-full border border-[var(--line-soft)] px-3 py-1 text-xs">
+                              選擇
                             </span>
-                          </div>
-                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--line-soft)]">
-                            <div
-                              className="h-full rounded-full bg-[linear-gradient(90deg,var(--accent),var(--accent-warm))]"
-                              style={{ width: `${getProgress(selectedBook)}%` }}
-                            />
-                          </div>
-                          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
-                            <input
-                              type="range"
-                              min={0}
-                              max={selectedBook.totalPages || 100}
-                              value={selectedBook.currentPage}
-                              onChange={(event) =>
-                                updateProgress(
-                                  selectedBook.id,
-                                  Number(event.target.value),
-                                )
-                              }
-                            />
-                            <input
-                              className="input"
-                              inputMode="numeric"
-                              value={selectedBook.currentPage}
-                              onChange={(event) =>
-                                updateProgress(
-                                  selectedBook.id,
-                                  Number(event.target.value || 0),
-                                )
-                              }
-                            />
-                          </div>
-                        </div>
-
-                        <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-white/72 p-4">
-                          <div className="text-sm leading-7 text-[var(--ink-soft)]">
-                            {selectedBook.description || "尚未填寫這本書的定位摘要。"}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-3">
-                          <button
-                            className="button-secondary"
-                            onClick={() => {
-                              setReadingBookId(selectedBook.id);
-                              setActiveSection("lab");
-                              setStatus("已切換到 Reading Lab");
-                            }}
-                          >
-                            <Clock3 className="h-4 w-4" />
-                            開始閱讀
                           </button>
-                          <button
-                            className="button-secondary"
-                            onClick={() => deleteBook(selectedBook.id)}
-                          >
-                            移出書櫃
-                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Field
+                      label="書名"
+                      value={bookForm.title}
+                      onChange={(value) =>
+                        setBookForm((current) => ({ ...current, title: value }))
+                      }
+                      placeholder="書名"
+                    />
+                    <Field
+                      label="作者"
+                      value={bookForm.author}
+                      onChange={(value) =>
+                        setBookForm((current) => ({ ...current, author: value }))
+                      }
+                      placeholder="作者"
+                    />
+                    <Field
+                      label="分類"
+                      value={bookForm.category}
+                      onChange={(value) =>
+                        setBookForm((current) => ({ ...current, category: value }))
+                      }
+                      placeholder="例如：習慣養成、思維決策"
+                    />
+                    <Field
+                      label="ISBN"
+                      value={bookForm.isbn}
+                      onChange={(value) =>
+                        setBookForm((current) => ({ ...current, isbn: value }))
+                      }
+                      placeholder="自動帶入或手動填寫"
+                    />
+                    <Field
+                      label="總頁數"
+                      value={bookForm.totalPages}
+                      onChange={(value) =>
+                        setBookForm((current) => ({ ...current, totalPages: value }))
+                      }
+                      placeholder="320"
+                    />
+                  </div>
+
+                  <TextAreaField
+                    label="書籍摘要"
+                    value={bookForm.description}
+                    onChange={(value) =>
+                      setBookForm((current) => ({ ...current, description: value }))
+                    }
+                    placeholder="保留這本書最重要的定位"
+                    rows={4}
+                  />
+
+                  <Field
+                    label="封面圖片"
+                    value={bookForm.coverImage}
+                    onChange={(value) =>
+                      setBookForm((current) => ({ ...current, coverImage: value }))
+                    }
+                    placeholder="https://..."
+                  />
+
+                  <button className="button-primary" onClick={handleAddBook}>
+                    <Plus className="h-4 w-4" />
+                    加入書櫃
+                  </button>
+                </div>
+              </Panel>
+
+              <Panel title="搜尋預覽" eyebrow="Preview" icon={<BookOpen className="h-5 w-5" />}>
+                {selectedBook ? (
+                  <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+                    <div className="aspect-[3/4] overflow-hidden rounded-[1.8rem] bg-[var(--paper-strong)] shadow-[0_18px_34px_rgba(76,55,24,0.08)]">
+                      {selectedBook.coverImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={selectedBook.coverImage}
+                          alt={selectedBook.title}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(140deg,#dbc9b0,#f7efe1)] text-[var(--ink-soft)]">
+                          無封面
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid gap-4">
+                      <div>
+                        <h3 className="font-serif-display text-3xl">{selectedBook.title}</h3>
+                        <p className="mt-2 text-sm text-[var(--ink-soft)]">
+                          {selectedBook.author || "作者未填寫"}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {selectedBook.category ? <Tag>{selectedBook.category}</Tag> : null}
+                          <Tag>{selectedBook.isbn || "ISBN 未填寫"}</Tag>
+                          <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
                         </div>
                       </div>
+                      <div className="rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
+                        {selectedBook.description || "尚未填寫這本書的定位摘要。"}
+                      </div>
+                      <button
+                        className="button-secondary w-fit"
+                        onClick={() => setActiveSection("shelf")}
+                      >
+                        前往書櫃管理
+                      </button>
                     </div>
-                  ) : (
-                    <EmptyState
-                      title="你的書櫃還是空的"
-                      body="先從左側輸入書名，建立第一本要讀的書。"
-                    />
-                  )}
-                </Panel>
-              </div>
+                  </div>
+                ) : (
+                  <EmptyState title="先找一本書" body="選擇候選書之後，這裡會顯示完整資訊。" />
+                )}
+              </Panel>
+            </div>
+          ) : null}
 
-              <Panel
-                title="我的書櫃"
-                eyebrow="Your Shelf"
-                icon={<BookCopy className="h-5 w-5" />}
-              >
+          {activeSection === "shelf" ? (
+            <div className="grid gap-5">
+              <Panel title={selectedBook ? selectedBook.title : "我的書櫃"} eyebrow="Shelf" icon={<BookCopy className="h-5 w-5" />}>
                 {books.length ? (
-                  <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                    {books.map((book) => {
-                      const active = selectedBookId === book.id;
-                      return (
-                        <button
-                          key={book.id}
-                          className={`book-card ${active ? "book-card-active" : ""}`}
-                          onClick={() => setSelectedBookId(book.id)}
-                        >
-                          <div className="flex gap-4">
-                            <div className="h-28 w-20 overflow-hidden rounded-[1rem] bg-[var(--paper-strong)]">
-                              {book.coverImage ? (
+                  <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+                    <div className="grid gap-4">
+                      <div className="flex flex-wrap gap-3">
+                        {bookCategories.map((category) => (
+                          <button
+                            key={category}
+                            className={`button-secondary ${selectedCategoryFilter === category ? "border-[var(--accent)] bg-emerald-50 text-[var(--ink-strong)]" : ""}`}
+                            onClick={() => setSelectedCategoryFilter(category)}
+                          >
+                            {category}
+                          </button>
+                        ))}
+                      </div>
+                      {filteredBooks.length ? (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          {filteredBooks.map((book) => {
+                            const active = selectedBookId === book.id;
+                            return (
+                              <button
+                                key={book.id}
+                                className={`book-card ${active ? "book-card-active" : ""}`}
+                                onClick={() => setSelectedBookId(book.id)}
+                              >
+                                <div className="flex gap-4">
+                                  <div className="h-32 w-24 shrink-0 overflow-hidden rounded-[1rem] bg-[var(--paper-strong)]">
+                                    {book.coverImage ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={book.coverImage}
+                                        alt={book.title}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : null}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="truncate text-lg font-semibold">{book.title}</div>
+                                    <div className="mt-1 text-sm text-[var(--ink-soft)]">
+                                      {book.author || "作者未填寫"}
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      {book.category ? <Tag>{book.category}</Tag> : null}
+                                      <Tag>{book.totalPages || "?"} 頁</Tag>
+                                      <Tag>{getProgress(book)}% 已讀</Tag>
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <EmptyState
+                          title="這個分類還沒有書"
+                          body="先新增更多書籍，或切換到其他分類看看。"
+                        />
+                      )}
+                    </div>
+                    <div>
+                      {selectedBook ? (
+                        <div className="app-screen h-full">
+                          <div className="app-screen-header">
+                            <div className="text-xs text-[var(--ink-soft)]">正在閱讀</div>
+                            <div className="font-serif-display text-2xl">{selectedBook.title}</div>
+                          </div>
+                          <div className="app-screen-body grid gap-4">
+                            <div className="aspect-[3/4] overflow-hidden rounded-[1.6rem] bg-[var(--paper-strong)]">
+                              {selectedBook.coverImage ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
-                                  src={book.coverImage}
-                                  alt={book.title}
+                                  src={selectedBook.coverImage}
+                                  alt={selectedBook.title}
                                   className="h-full w-full object-cover"
                                 />
                               ) : null}
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-lg font-semibold">
-                                {book.title}
+                            <div className="flex flex-wrap gap-2">
+                              {selectedBook.category ? <Tag>{selectedBook.category}</Tag> : null}
+                              <Tag>{selectedBook.isbn || "ISBN 未填寫"}</Tag>
+                              <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
+                            </div>
+                            <div className="rounded-[1.4rem] bg-[var(--paper-strong)] p-4">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-[var(--ink-soft)]">閱讀進度</span>
+                                <span className="font-semibold">
+                                  {selectedBook.currentPage}/{selectedBook.totalPages || "?"}
+                                </span>
                               </div>
-                              <div className="mt-1 text-sm text-[var(--ink-soft)]">
-                                {book.author || "作者未填寫"}
-                              </div>
-                              <div className="mt-4 flex flex-wrap gap-2">
-                                <Tag>{book.totalPages || "?"} 頁</Tag>
-                                <Tag>{getProgress(book)}% 已讀</Tag>
-                              </div>
-                              <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--line-soft)]">
+                              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--line-soft)]">
                                 <div
                                   className="h-full rounded-full bg-[linear-gradient(90deg,var(--accent),var(--accent-warm))]"
-                                  style={{ width: `${getProgress(book)}%` }}
+                                  style={{ width: `${getProgress(selectedBook)}%` }}
+                                />
+                              </div>
+                              <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={selectedBook.totalPages || 100}
+                                  value={selectedBook.currentPage}
+                                  onChange={(event) =>
+                                    updateProgress(
+                                      selectedBook.id,
+                                      Number(event.target.value),
+                                    )
+                                  }
+                                />
+                                <input
+                                  className="input"
+                                  inputMode="numeric"
+                                  value={selectedBook.currentPage}
+                                  onChange={(event) =>
+                                    updateProgress(
+                                      selectedBook.id,
+                                      Number(event.target.value || 0),
+                                    )
+                                  }
                                 />
                               </div>
                             </div>
+                            <div className="rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
+                              {selectedBook.description || "尚未填寫這本書的定位摘要。"}
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                              <button
+                                className="button-primary"
+                                onClick={() => {
+                                  setReadingBookId(selectedBook.id);
+                                  setActiveSection("focus");
+                                  setStatus("已切換到專注模式");
+                                }}
+                              >
+                                <Clock3 className="h-4 w-4" />
+                                開始閱讀
+                              </button>
+                              <button
+                                className="button-secondary"
+                                onClick={() => deleteBook(selectedBook.id)}
+                              >
+                                移出書櫃
+                              </button>
+                            </div>
                           </div>
-                        </button>
-                      );
-                    })}
+                        </div>
+                      ) : (
+                        <EmptyState
+                          title="你的書櫃還是空的"
+                          body="先到找書頁把第一本書加進來。"
+                        />
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <EmptyState
@@ -1318,17 +1655,16 @@ function AppShell() {
                   />
                 )}
               </Panel>
-            </>
+            </div>
           ) : null}
 
-          {activeSection === "lab" ? (
-            <>
-              <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
-                <Panel
-                  title={readingBook ? readingBook.title : "Reading Lab"}
-                  eyebrow="Focus Session"
-                  icon={<Clock3 className="h-5 w-5" />}
-                >
+          {activeSection === "focus" ? (
+            <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
+              <Panel
+                title={readingBook ? readingBook.title : "專注模式"}
+                eyebrow="Focus Session"
+                icon={<Clock3 className="h-5 w-5" />}
+              >
                   {readingBook ? (
                     <div className="grid gap-5">
                       <div className="rounded-[1.8rem] bg-[linear-gradient(160deg,rgba(47,40,33,0.96),rgba(96,72,46,0.92))] p-6 text-white shadow-[0_22px_50px_rgba(59,43,20,0.24)]">
@@ -1460,13 +1796,53 @@ function AppShell() {
                       body="到書籍整理把第一本書加入書櫃，就能開始計時與摘錄。"
                     />
                   )}
-                </Panel>
+              </Panel>
 
-                <Panel
-                  title={editingNoteId ? "編輯筆記" : "新增摘錄"}
-                  eyebrow="Capture"
-                  icon={<ScanText className="h-5 w-5" />}
-                >
+              <Panel
+                title="本週閱讀紀錄"
+                eyebrow="Recent Sessions"
+                icon={<Trophy className="h-5 w-5" />}
+              >
+                {recentSessions.length ? (
+                  <div className="grid gap-3">
+                    {recentSessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className="rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 px-4 py-4"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-semibold">
+                              {booksById[session.bookId]?.title ?? "未命名書籍"}
+                            </div>
+                            <div className="mt-1 text-sm text-[var(--ink-soft)]">
+                              {formatDate(session.startedAt)}
+                            </div>
+                          </div>
+                          <div className="rounded-full bg-[var(--paper-strong)] px-3 py-2 text-sm font-semibold">
+                            {session.minutes} 分鐘
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="還沒有閱讀紀錄"
+                    body="完成第一個專注時段後，這裡會記錄你的閱讀節奏。"
+                  />
+                )}
+              </Panel>
+            </div>
+          ) : null}
+
+          {activeSection === "notes" ? (
+            <>
+              <Panel
+                title={editingNoteId ? "編輯筆記" : "新增摘錄"}
+                eyebrow="Capture"
+                icon={<ScanText className="h-5 w-5" />}
+              >
                   <div className="grid gap-4">
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="field-wrap">
@@ -1590,8 +1966,7 @@ function AppShell() {
                       ) : null}
                     </div>
                   </div>
-                </Panel>
-              </div>
+              </Panel>
 
               <Panel
                 title="最近筆記"
@@ -1621,14 +1996,13 @@ function AppShell() {
             </>
           ) : null}
 
-          {activeSection === "echo" ? (
+          {activeSection === "review" ? (
             <>
-              <div className="grid gap-5 xl:grid-cols-[1.02fr_0.98fr]">
-                <Panel
-                  title="待複習回聲"
-                  eyebrow="Echo Queue"
-                  icon={<Brain className="h-5 w-5" />}
-                >
+              <Panel
+                title="待複習回聲"
+                eyebrow="Echo Queue"
+                icon={<Brain className="h-5 w-5" />}
+              >
                   {dueEchoes.length ? (
                     <div className="grid gap-4">
                       {dueEchoes.map((echo) => (
@@ -1665,8 +2039,59 @@ function AppShell() {
                       body="新增更多筆記後，系統會在 1、7、30 天後提醒你回想。"
                     />
                   )}
-                </Panel>
+              </Panel>
 
+              <Panel
+                title="收藏金句"
+                eyebrow="Favorites"
+                icon={<Star className="h-5 w-5" />}
+              >
+                {favoriteNotes.length ? (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {favoriteNotes.map((note) => (
+                      <div key={note.id} className="rounded-[1.5rem] bg-white/72 p-4">
+                        <div className="text-sm text-[var(--ink-soft)]">
+                          {booksById[note.bookId]?.title ?? "未命名書籍"}
+                        </div>
+                        <div className="mt-3 font-serif-display text-2xl leading-[1.7]">
+                          {note.rawText}
+                        </div>
+                        {note.reflection ? (
+                          <div className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
+                            {note.reflection}
+                          </div>
+                        ) : null}
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button
+                            className="button-secondary"
+                            onClick={() => void shareFavorite(note)}
+                          >
+                            <Share2 className="h-4 w-4" />
+                            分享
+                          </button>
+                          <button
+                            className="button-secondary"
+                            onClick={() => editNote(note)}
+                          >
+                            編輯
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="還沒有收藏金句"
+                    body="在筆記頁把重要摘錄標成收藏，這裡就會變成你的精華區。"
+                  />
+                )}
+              </Panel>
+            </>
+          ) : null}
+
+          {activeSection === "studio" ? (
+            <>
+              <div className="grid gap-5 xl:grid-cols-[1.02fr_0.98fr]">
                 <Panel
                   title="分享與輸出"
                   eyebrow="Output"
@@ -1718,48 +2143,43 @@ function AppShell() {
                         下載備份
                       </button>
                     </div>
+                  </div>
+                </Panel>
 
-                    <div className="rounded-[1.5rem] border border-[var(--line-soft)] bg-[var(--paper-strong)] p-4">
-                      <div className="flex items-center gap-2 text-sm font-semibold">
-                        <Trophy className="h-4 w-4" />
-                        升級路線
-                      </div>
-                      <div className="mt-4 grid gap-3">
-                        {LEVELS.map((item) => {
-                          const unlocked = inkDrops >= item.min;
-                          return (
-                            <div
-                              key={item.level}
-                              className={`flex items-center justify-between rounded-[1.2rem] px-4 py-3 ${
-                                unlocked
-                                  ? "bg-amber-50 text-[var(--ink-strong)]"
-                                  : "bg-white/70 text-[var(--ink-soft)]"
-                              }`}
-                            >
-                              <div>
-                                <div className="font-semibold">
-                                  Lv.{item.level} {item.label}
-                                </div>
-                                <div className="text-sm">{item.unlock}</div>
-                              </div>
-                              <div className="text-xs font-semibold uppercase">
-                                {unlocked ? "Unlocked" : `${item.min} Ink`}
-                              </div>
+                <Panel title="升級路線" eyebrow="Levels" icon={<Trophy className="h-5 w-5" />}>
+                  <div className="grid gap-3">
+                    {LEVELS.map((item) => {
+                      const unlocked = inkDrops >= item.min;
+                      return (
+                        <div
+                          key={item.level}
+                          className={`flex items-center justify-between rounded-[1.2rem] px-4 py-3 ${
+                            unlocked
+                              ? "bg-amber-50 text-[var(--ink-strong)]"
+                              : "bg-white/70 text-[var(--ink-soft)]"
+                          }`}
+                        >
+                          <div>
+                            <div className="font-semibold">
+                              Lv.{item.level} {item.label}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                            <div className="text-sm">{item.unlock}</div>
+                          </div>
+                          <div className="text-xs font-semibold uppercase">
+                            {unlocked ? "Unlocked" : `${item.min} Ink`}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </Panel>
               </div>
 
-              <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
-                <Panel
-                  title="知識圖譜"
-                  eyebrow="Concept Map"
-                  icon={<GitBranch className="h-5 w-5" />}
-                >
+              <Panel
+                title="知識圖譜"
+                eyebrow="Concept Map"
+                icon={<GitBranch className="h-5 w-5" />}
+              >
                   {conceptGraph.length ? (
                     <div className="grid gap-4">
                       <div className="flex flex-wrap gap-3">
@@ -1788,54 +2208,7 @@ function AppShell() {
                       body="多寫幾則筆記之後，這裡會開始長出你自己的主題地圖。"
                     />
                   )}
-                </Panel>
-
-                <Panel
-                  title="收藏金句"
-                  eyebrow="Favorites"
-                  icon={<Star className="h-5 w-5" />}
-                >
-                  {favoriteNotes.length ? (
-                    <div className="grid gap-4">
-                      {favoriteNotes.map((note) => (
-                        <div key={note.id} className="rounded-[1.5rem] bg-white/72 p-4">
-                          <div className="text-sm text-[var(--ink-soft)]">
-                            {booksById[note.bookId]?.title ?? "未命名書籍"}
-                          </div>
-                          <div className="mt-3 font-serif-display text-2xl leading-[1.7]">
-                            {note.rawText}
-                          </div>
-                          {note.reflection ? (
-                            <div className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
-                              {note.reflection}
-                            </div>
-                          ) : null}
-                          <div className="mt-4 flex flex-wrap gap-3">
-                            <button
-                              className="button-secondary"
-                              onClick={() => void shareFavorite(note)}
-                            >
-                              <Share2 className="h-4 w-4" />
-                              分享
-                            </button>
-                            <button
-                              className="button-secondary"
-                              onClick={() => editNote(note)}
-                            >
-                              編輯
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <EmptyState
-                      title="還沒有收藏金句"
-                      body="在 Reading Lab 把重要摘錄標成收藏，這裡就會變成你的精華區。"
-                    />
-                  )}
-                </Panel>
-              </div>
+              </Panel>
             </>
           ) : null}
         </section>
