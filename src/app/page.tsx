@@ -8,6 +8,7 @@ import {
   BookOpen,
   Brain,
   Check,
+  ChevronDown,
   ChevronRight,
   Clock3,
   Download,
@@ -1997,22 +1998,25 @@ function AppShell() {
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="field-wrap">
                         <label className="field-label">書籍</label>
-                        <select
-                          className="input"
-                          value={noteForm.bookId}
-                          onChange={(event) =>
-                            setNoteForm((current) => ({
-                              ...current,
-                              bookId: event.target.value,
-                            }))
-                          }
-                        >
-                          {books.map((book) => (
-                            <option key={book.id} value={book.id}>
-                              {book.title}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="select-wrap">
+                          <select
+                            className="input input-select"
+                            value={noteForm.bookId}
+                            onChange={(event) =>
+                              setNoteForm((current) => ({
+                                ...current,
+                                bookId: event.target.value,
+                              }))
+                            }
+                          >
+                            {books.map((book) => (
+                              <option key={book.id} value={book.id}>
+                                {book.title}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="select-icon h-5 w-5" />
+                        </div>
                       </div>
                       <Field
                         label="頁碼"

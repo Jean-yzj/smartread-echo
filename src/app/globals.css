@@ -104,6 +104,27 @@ button:hover {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
+.select-wrap {
+  position: relative;
+}
+
+.input-select {
+  min-height: 4.6rem;
+  appearance: none;
+  padding-right: 3.2rem;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+.select-icon {
+  pointer-events: none;
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-soft);
+}
+
 .input:focus,
 .textarea:focus,
 select:focus {
