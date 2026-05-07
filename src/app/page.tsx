@@ -108,12 +108,60 @@ type OpenLibrarySearchResponse = {
 const STORAGE_KEY = "smartread-echo-state";
 const ECHO_DAYS = [1, 7, 30];
 const FOCUS_MINUTES = 25;
+const CATEGORY_OPTIONS = ["商業類", "思考類", "文學類"] as const;
 const LEVELS = [
   { level: 1, label: "讀者", min: 0, unlock: "建立書櫃、閱讀計時、私人筆記" },
   { level: 2, label: "探索者", min: 120, unlock: "書名快搜、分享卡、收藏管理" },
   { level: 3, label: "思辨家", min: 260, unlock: "回聲複習、主題整理、Notion 匯出" },
   { level: 4, label: "架構師", min: 500, unlock: "完整知識圖譜與長期閱讀節奏" },
 ] as const;
+
+const BUSINESS_CATEGORY_HINTS = [
+  "商業",
+  "創業",
+  "公司",
+  "管理",
+  "策略",
+  "投資",
+  "財富",
+  "行銷",
+  "產品",
+  "品牌",
+  "從0到1",
+  "勝算",
+  "納瓦爾",
+  "morgan housel",
+  "peter thiel",
+];
+
+const THINKING_CATEGORY_HINTS = [
+  "思考",
+  "思維",
+  "框架",
+  "習慣",
+  "學習",
+  "心理",
+  "歷史",
+  "科學",
+  "邏輯",
+  "工作",
+  "睡覺",
+  "kahneman",
+  "james clear",
+  "cal newport",
+  "yuval",
+];
+
+const LITERATURE_CATEGORY_HINTS = [
+  "文學",
+  "小說",
+  "散文",
+  "詩",
+  "劇",
+  "故事",
+  "長篇",
+  "短篇",
+];
 
 const LOCAL_BOOK_CATALOG: BookSearchResult[] = [
   {
@@ -406,6 +454,53 @@ function normalizeKeyword(value: string) {
   return value.toLowerCase().replace(/[\s:：\-_/.,()（）]/g, "");
 }
 
+function includesCategoryHint(haystack: string, hints: string[]) {
+  return hints.some((hint) => haystack.includes(normalizeKeyword(hint)));
+}
+
+function categorizeBook(input: {
+  title: string;
+  author: string;
+  category?: string;
+  description?: string;
+}) {
+  if (CATEGORY_OPTIONS.includes(input.category as (typeof CATEGORY_OPTIONS)[number])) {
+    return input.category as (typeof CATEGORY_OPTIONS)[number];
+  }
+
+  const haystack = normalizeKeyword(
+    `${input.title}${input.author}${input.category ?? ""}${input.description ?? ""}`,
+  );
+
+  if (includesCategoryHint(haystack, LITERATURE_CATEGORY_HINTS)) {
+    return "文學類";
+  }
+
+  if (includesCategoryHint(haystack, BUSINESS_CATEGORY_HINTS)) {
+    return "商業類";
+  }
+
+  if (includesCategoryHint(haystack, THINKING_CATEGORY_HINTS)) {
+    return "思考類";
+  }
+
+  return "思考類";
+}
+
+function normalizeBook(book: Book): Book {
+  return {
+    ...book,
+    category: categorizeBook(book),
+  };
+}
+
+function normalizeBookResult(result: BookSearchResult): BookSearchResult {
+  return {
+    ...result,
+    category: categorizeBook(result),
+  };
+}
+
 function dedupeBookResults(results: BookSearchResult[]) {
   const seen = new Set<string>();
   return results.filter((result) => {
@@ -426,7 +521,9 @@ function searchLocalCatalog(keyword: string) {
       `${book.title}${book.author}${book.isbn}${book.description}`,
     );
     return haystack.includes(normalizedKeyword);
-  }).slice(0, 6);
+  })
+    .map(normalizeBookResult)
+    .slice(0, 6);
 }
 
 function buildEchoPrompt(note: Note, book?: Book) {
@@ -537,7 +634,7 @@ function extractConcepts(notes: Note[], booksById: Record<string, Book>) {
 
 function AppShell() {
   const [activeSection, setActiveSection] = useState<AppSection>("search");
-  const [books, setBooks] = useState<Book[]>(demoBooks);
+  const [books, setBooks] = useState<Book[]>(() => demoBooks.map(normalizeBook));
   const [notes, setNotes] = useState<Note[]>(demoNotes);
   const [sessions, setSessions] = useState<Session[]>(demoSessions);
   const [completedEchoes, setCompletedEchoes] = useState<string[]>([]);
@@ -568,6 +665,7 @@ function AppShell() {
   const [bookSearchLoading, setBookSearchLoading] = useState(false);
   const [bookSearchMessage, setBookSearchMessage] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("全部");
+  const [shelfQuery, setShelfQuery] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [readingBookId, setReadingBookId] = useState(demoBooks[0]?.id ?? "");
   const [selectedBookId, setSelectedBookId] = useState(demoBooks[0]?.id ?? "");
@@ -590,7 +688,7 @@ function AppShell() {
           sessions: Session[];
           completedEchoes: string[];
         };
-        setBooks(parsed.books);
+        setBooks(parsed.books.map(normalizeBook));
         setNotes(parsed.notes);
         setSessions(parsed.sessions);
         setCompletedEchoes(parsed.completedEchoes);
@@ -707,18 +805,19 @@ function AppShell() {
   const currentSection = sections.find(
     (section) => section.id === activeSection,
   )!;
-  const bookCategories = [
-    "全部",
-    ...new Set(
-      books
-        .map((book) => book.category?.trim())
-        .filter((category): category is string => Boolean(category)),
-    ),
-  ];
+  const bookCategories = ["全部", ...CATEGORY_OPTIONS];
+  const normalizedShelfQuery = normalizeKeyword(shelfQuery);
   const filteredBooks =
     selectedCategoryFilter === "全部"
       ? books
       : books.filter((book) => book.category === selectedCategoryFilter);
+  const shelfBooks = normalizedShelfQuery
+    ? filteredBooks.filter((book) =>
+        normalizeKeyword(
+          `${book.title}${book.author}${book.category}${book.isbn}`,
+        ).includes(normalizedShelfQuery),
+      )
+    : filteredBooks;
   const averageProgress =
     books.length > 0
       ? Math.round(
@@ -766,7 +865,7 @@ function AppShell() {
             id.type?.includes("ISBN"),
           )?.identifier ?? "";
 
-        return {
+        return normalizeBookResult({
           title: volume.title ?? "未命名書籍",
           author: volume.authors?.join(", ") ?? "",
           category: "",
@@ -776,7 +875,7 @@ function AppShell() {
           coverImage:
             volume.imageLinks?.thumbnail?.replace("http://", "https://") ?? "",
           source: "Google Books",
-        };
+        });
       });
 
       const mergedResults = dedupeBookResults([...localResults, ...results]).slice(
@@ -804,7 +903,8 @@ function AppShell() {
         const results = (fallbackData.docs ?? [])
           .filter((item) => item.title)
           .slice(0, 8)
-          .map((item) => ({
+          .map((item) =>
+            normalizeBookResult({
             title: item.title ?? "未命名書籍",
             author: item.author_name?.join(", ") ?? "",
             category: "",
@@ -817,7 +917,8 @@ function AppShell() {
               ? `https://covers.openlibrary.org/b/id/${item.cover_i}-L.jpg`
               : "",
             source: "Open Library",
-          }));
+            }),
+          );
 
         const mergedResults = dedupeBookResults([
           ...localResults,
@@ -863,7 +964,7 @@ function AppShell() {
     setBookForm({
       title: result.title,
       author: result.author,
-      category: result.category,
+      category: categorizeBook(result),
       isbn: result.isbn,
       totalPages: result.totalPages ? String(result.totalPages) : "",
       description: result.description,
@@ -885,7 +986,12 @@ function AppShell() {
       id: uid("book"),
       title: bookForm.title.trim(),
       author: bookForm.author.trim(),
-      category: bookForm.category.trim() || "未分類",
+      category: categorizeBook({
+        title: bookForm.title.trim(),
+        author: bookForm.author.trim(),
+        category: bookForm.category.trim(),
+        description: bookForm.description.trim(),
+      }),
       isbn: bookForm.isbn.trim(),
       totalPages: Number(bookForm.totalPages || 0),
       currentPage: 0,
@@ -1498,6 +1604,14 @@ function AppShell() {
                           <div className="text-[11px] font-semibold tracking-[0.18em] text-[var(--ink-soft)] uppercase">
                             Categories
                           </div>
+                          <div className="mt-3">
+                            <Field
+                              label="書櫃搜尋"
+                              value={shelfQuery}
+                              onChange={setShelfQuery}
+                              placeholder="搜尋書名、作者或 ISBN"
+                            />
+                          </div>
                           <div className="mt-3 flex flex-wrap gap-2">
                             {bookCategories.map((category) => (
                               <button
@@ -1511,14 +1625,14 @@ function AppShell() {
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
-                          <ShelfStat label="書籍" value={`${filteredBooks.length}`} />
+                          <ShelfStat label="書籍" value={`${shelfBooks.length}`} />
                           <ShelfStat label="平均" value={`${averageProgress}%`} />
                           <ShelfStat label="收藏" value={`${favoriteNotes.length}`} />
                         </div>
                       </div>
-                      {filteredBooks.length ? (
+                      {shelfBooks.length ? (
                         <div className="shelf-list">
-                          {filteredBooks.map((book) => {
+                          {shelfBooks.map((book) => {
                             const active = selectedBookId === book.id;
                             return (
                               <button
@@ -1569,8 +1683,8 @@ function AppShell() {
                         </div>
                       ) : (
                         <EmptyState
-                          title="這個分類還沒有書"
-                          body="先新增更多書籍，或切換到其他分類看看。"
+                          title="找不到符合的書"
+                          body="試試其他關鍵字，或切換到不同分類看看。"
                         />
                       )}
                     </div>
