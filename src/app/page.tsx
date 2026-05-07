@@ -8,6 +8,7 @@ import {
   BookOpen,
   Brain,
   Check,
+  Compass,
   ChevronDown,
   ChevronRight,
   Clock3,
@@ -79,6 +80,7 @@ type NoteForm = {
 type AppSection =
   | "search"
   | "shelf"
+  | "solver"
   | "focus"
   | "notes"
   | "review"
@@ -373,6 +375,13 @@ const sections: Array<{
     icon: <Library className="h-4 w-4" />,
   },
   {
+    id: "solver",
+    title: "解題",
+    short: "Problem Solver",
+    description: "遇到問題時回找適合的書",
+    icon: <Compass className="h-4 w-4" />,
+  },
+  {
     id: "focus",
     title: "專注",
     short: "Focus",
@@ -633,6 +642,136 @@ function extractConcepts(notes: Note[], booksById: Record<string, Book>) {
     .slice(0, 12);
 }
 
+function extractMeaningfulTerms(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[0-9]/g, "")
+    .trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  const directTerms = normalized
+    .split(/[，。、；：「」？！\s,.()/\-_=+]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2);
+
+  const grams: string[] = [];
+  for (const term of directTerms) {
+    if (/^[a-z\s]+$/.test(term)) {
+      continue;
+    }
+    if (term.length >= 4) {
+      for (let size = 2; size <= 3; size += 1) {
+        for (let index = 0; index <= term.length - size; index += 1) {
+          grams.push(term.slice(index, index + size));
+        }
+      }
+    }
+  }
+
+  return [...new Set([...directTerms, ...grams])].slice(0, 24);
+}
+
+function estimateChapter(book: Book, pageHint?: number) {
+  const totalPages = Math.max(book.totalPages || 0, 1);
+  const chapterCount = Math.max(4, Math.min(12, Math.round(totalPages / 42)));
+  const chapterSize = Math.max(12, Math.ceil(totalPages / chapterCount));
+  const safePage = Math.max(1, Math.min(totalPages, pageHint || Math.round(totalPages * 0.28)));
+  const chapter = Math.max(1, Math.min(chapterCount, Math.ceil(safePage / chapterSize)));
+  const startPage = Math.max(1, (chapter - 1) * chapterSize + 1);
+  const endPage = Math.min(totalPages, chapter * chapterSize);
+  return { chapter, startPage, endPage };
+}
+
+function buildProblemRecommendations(
+  books: Book[],
+  notes: Note[],
+  query: string,
+) {
+  const normalizedQuery = normalizeKeyword(query);
+  const terms = extractMeaningfulTerms(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return books
+    .map((book) => {
+      const relatedNotes = notes.filter((note) => note.bookId === book.id);
+      const bookText = normalizeKeyword(
+        `${book.title}${book.author}${book.category}${book.description}`,
+      );
+
+      let score = 0;
+      const matchedTerms = new Set<string>();
+
+      if (bookText.includes(normalizedQuery)) {
+        score += 18;
+      }
+
+      for (const term of terms) {
+        if (term.length < 2) {
+          continue;
+        }
+        const normalizedTerm = normalizeKeyword(term);
+        if (bookText.includes(normalizedTerm)) {
+          score += normalizedTerm.length >= 3 ? 7 : 4;
+          matchedTerms.add(term);
+        }
+      }
+
+      const noteMatches = relatedNotes
+        .map((note) => {
+          const noteText = normalizeKeyword(`${note.rawText}${note.reflection}`);
+          let noteScore = 0;
+          if (noteText.includes(normalizedQuery)) {
+            noteScore += 22;
+          }
+          for (const term of terms) {
+            const normalizedTerm = normalizeKeyword(term);
+            if (normalizedTerm.length >= 2 && noteText.includes(normalizedTerm)) {
+              noteScore += normalizedTerm.length >= 3 ? 8 : 5;
+              matchedTerms.add(term);
+            }
+          }
+          return { note, noteScore };
+        })
+        .filter((item) => item.noteScore > 0)
+        .sort((a, b) => b.noteScore - a.noteScore);
+
+      score += noteMatches.reduce((sum, item) => sum + item.noteScore, 0);
+
+      if (book.currentPage > 0) {
+        score += 2;
+      }
+
+      if (score <= 0) {
+        return null;
+      }
+
+      const strongestNote = noteMatches[0]?.note;
+      const chapterHintPage = strongestNote?.page || Math.max(1, Math.round(book.totalPages * 0.28));
+      const chapterEstimate = estimateChapter(book, chapterHintPage);
+
+      return {
+        book,
+        score,
+        chapterEstimate,
+        strongestNote,
+        matchedTerms: [...matchedTerms].slice(0, 4),
+        reason:
+          strongestNote
+            ? `你的問題和你在《${book.title}》留下的筆記最接近，先回到這段內容會最快。`
+            : `這本書的主題和你現在的問題最貼近，適合先從中段建立方向。`,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+}
+
 function AppShell() {
   const [activeSection, setActiveSection] = useState<AppSection>("search");
   const [books, setBooks] = useState<Book[]>(() => demoBooks.map(normalizeBook));
@@ -667,6 +806,7 @@ function AppShell() {
   const [bookSearchMessage, setBookSearchMessage] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("全部");
   const [shelfQuery, setShelfQuery] = useState("");
+  const [problemQuery, setProblemQuery] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [readingBookId, setReadingBookId] = useState(demoBooks[0]?.id ?? "");
   const [selectedBookId, setSelectedBookId] = useState(demoBooks[0]?.id ?? "");
@@ -803,6 +943,10 @@ function AppShell() {
   const recentNotes = [...notes].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const recentSessions = sessions.slice(0, 5);
   const conceptGraph = extractConcepts(notes, booksById);
+  const problemRecommendations = useMemo(
+    () => buildProblemRecommendations(books, notes, problemQuery),
+    [books, notes, problemQuery],
+  );
   const currentSection = sections.find(
     (section) => section.id === activeSection,
   )!;
@@ -1381,6 +1525,7 @@ function AppShell() {
                 <p className="section-note mt-2">
                   {activeSection === "search" && "找書並建立資料"}
                   {activeSection === "shelf" && "整理藏書與閱讀進度"}
+                  {activeSection === "solver" && "輸入你卡住的問題，回找最適合先翻的那本書"}
                   {activeSection === "focus" && "開始一段專注閱讀"}
                   {activeSection === "notes" && "保存摘錄與想法"}
                   {activeSection === "review" && "處理今日待複習內容"}
@@ -1803,6 +1948,157 @@ function AppShell() {
                   <EmptyState
                     title="還沒有書籍"
                     body="建立第一本書之後，這裡會變成你的閱讀主頁。"
+                  />
+                )}
+              </Panel>
+            </div>
+          ) : null}
+
+          {activeSection === "solver" ? (
+            <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+              <Panel title="我現在遇到的問題" eyebrow="Problem Solver" icon={<Compass className="h-5 w-5" />}>
+                <div className="grid gap-4">
+                  <TextAreaField
+                    label="直接輸入你的困擾"
+                    value={problemQuery}
+                    onChange={setProblemQuery}
+                    placeholder="例如：我最近一直拖延，知道該做什麼，但就是很難穩定執行。"
+                    rows={6}
+                  />
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      "我最近很拖延，事情常常開了頭卻做不下去",
+                      "遇到選擇時很容易猶豫，不知道怎麼判斷",
+                      "明明看了很多書，但一直沒有真的內化成行動",
+                    ].map((example) => (
+                      <button
+                        key={example}
+                        className="button-secondary"
+                        onClick={() => setProblemQuery(example)}
+                      >
+                        套用範例
+                      </button>
+                    ))}
+                  </div>
+                  <div className="rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
+                    系統會先比對你的書名、分類、摘要，再加上你自己留下的摘錄與心得，推薦最值得先回去翻的章節。
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel title="建議先回看的書" eyebrow="Recommendations" icon={<BookOpen className="h-5 w-5" />}>
+                {books.length === 0 ? (
+                  <EmptyState
+                    title="先建立你的書櫃"
+                    body="至少加入一本到書櫃之後，解題功能才能開始幫你配對。"
+                  />
+                ) : !problemQuery.trim() ? (
+                  <EmptyState
+                    title="先描述一下你卡住的地方"
+                    body="像是拖延、做決策、焦慮、溝通卡住，或想把閱讀真正落地成行動。"
+                  />
+                ) : problemRecommendations.length ? (
+                  <div className="grid gap-4">
+                    {problemRecommendations.map((item, index) => (
+                      <div
+                        key={`${item.book.id}-${item.chapterEstimate.chapter}`}
+                        className="rounded-[1.7rem] border border-[var(--line-soft)] bg-white/78 p-5 shadow-[0_18px_34px_rgba(77,56,25,0.06)]"
+                      >
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-[var(--paper-strong)] px-3 py-1 text-xs font-semibold text-[var(--accent-ink)]">
+                                Top {index + 1}
+                              </span>
+                              <Tag>{item.book.category}</Tag>
+                              <Tag>第 {item.chapterEstimate.chapter} 章</Tag>
+                              <Tag>
+                                {item.chapterEstimate.startPage}-{item.chapterEstimate.endPage} 頁
+                              </Tag>
+                            </div>
+                            <div className="mt-3 font-serif-display text-[2rem] leading-tight">
+                              {item.book.title}
+                            </div>
+                            <div className="mt-2 text-sm text-[var(--ink-soft)]">
+                              {item.book.author || "作者未填寫"}
+                            </div>
+                            <div className="mt-4 text-sm leading-7 text-[var(--ink-soft)]">
+                              {item.reason}
+                            </div>
+                            {item.matchedTerms.length ? (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {item.matchedTerms.map((term) => (
+                                  <span
+                                    key={term}
+                                    className="rounded-full border border-[var(--line-soft)] bg-[var(--paper-strong)] px-3 py-1 text-xs font-semibold text-[var(--accent-ink)]"
+                                  >
+                                    {term}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                          <button
+                            className="button-secondary"
+                            onClick={() => {
+                              setSelectedBookId(item.book.id);
+                              setActiveSection("shelf");
+                              setStatus(`已打開《${item.book.title}》`);
+                            }}
+                          >
+                            打開這本書
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+                          <div className="rounded-[1.35rem] bg-[var(--paper-strong)] p-4">
+                            <div className="text-sm font-semibold">推薦閱讀位置</div>
+                            <div className="mt-2 text-2xl font-semibold text-[var(--accent-ink)]">
+                              第 {item.chapterEstimate.chapter} 章
+                            </div>
+                            <div className="mt-1 text-sm text-[var(--ink-soft)]">
+                              約第 {item.chapterEstimate.startPage} 到 {item.chapterEstimate.endPage} 頁
+                            </div>
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--line-soft)]">
+                              <div
+                                className="h-full rounded-full bg-[linear-gradient(90deg,var(--accent),var(--accent-warm))]"
+                                style={{
+                                  width: `${Math.round((item.chapterEstimate.endPage / Math.max(item.book.totalPages, 1)) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="rounded-[1.35rem] bg-white/72 p-4">
+                            <div className="text-sm font-semibold">最相關的私人筆記</div>
+                            {item.strongestNote ? (
+                              <>
+                                <div className="mt-3 text-xs text-[var(--ink-soft)]">
+                                  第 {item.strongestNote.page || "?"} 頁
+                                </div>
+                                <div className="mt-2 font-serif-display text-xl leading-[1.7]">
+                                  {item.strongestNote.rawText}
+                                </div>
+                                {item.strongestNote.reflection ? (
+                                  <div className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
+                                    {item.strongestNote.reflection}
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : (
+                              <div className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
+                                你還沒在這本書留下相關筆記，先從這個章節開始補第一則摘錄會最有幫助。
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="目前找不到很接近的內容"
+                    body="試著把問題再描述具體一點，像是拖延、判斷、焦慮、習慣、溝通或專注。"
                   />
                 )}
               </Panel>
