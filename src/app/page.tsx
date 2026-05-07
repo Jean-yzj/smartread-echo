@@ -1288,7 +1288,7 @@ function AppShell() {
   return (
     <div className="app-shell min-h-screen text-[var(--ink-strong)]">
       <main className="mx-auto grid min-h-screen w-full max-w-[1540px] gap-5 px-4 py-4 lg:grid-cols-[290px_minmax(0,1fr)] lg:px-6 lg:py-6">
-        <aside className="app-sidebar flex flex-col gap-5 rounded-[2.2rem] p-5 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
+        <aside className="app-sidebar flex flex-col gap-5 rounded-[2.2rem] p-5 lg:sticky lg:top-6 lg:self-start lg:min-h-[calc(100vh-3rem)]">
           <div className="brand-card">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-bold tracking-[0.22em] text-white/84 uppercase">
               <Sparkles className="h-3.5 w-3.5" />
