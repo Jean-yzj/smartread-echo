@@ -1491,31 +1491,43 @@ function AppShell() {
             <div className="grid gap-5">
               <Panel title={selectedBook ? selectedBook.title : "我的書櫃"} eyebrow="Shelf" icon={<BookCopy className="h-5 w-5" />}>
                 {books.length ? (
-                  <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+                  <div className="shelf-layout">
                     <div className="grid gap-4">
-                      <div className="flex flex-wrap gap-3">
-                        {bookCategories.map((category) => (
-                          <button
-                            key={category}
-                            className={`button-secondary ${selectedCategoryFilter === category ? "border-[var(--accent)] bg-emerald-50 text-[var(--ink-strong)]" : ""}`}
-                            onClick={() => setSelectedCategoryFilter(category)}
-                          >
-                            {category}
-                          </button>
-                        ))}
+                      <div className="shelf-toolbar">
+                        <div>
+                          <div className="text-[11px] font-semibold tracking-[0.18em] text-[var(--ink-soft)] uppercase">
+                            Categories
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {bookCategories.map((category) => (
+                              <button
+                                key={category}
+                                className={`category-pill ${selectedCategoryFilter === category ? "category-pill-active" : ""}`}
+                                onClick={() => setSelectedCategoryFilter(category)}
+                              >
+                                {category}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <ShelfStat label="書籍" value={`${filteredBooks.length}`} />
+                          <ShelfStat label="平均" value={`${averageProgress}%`} />
+                          <ShelfStat label="收藏" value={`${favoriteNotes.length}`} />
+                        </div>
                       </div>
                       {filteredBooks.length ? (
-                        <div className="book-grid">
+                        <div className="shelf-list">
                           {filteredBooks.map((book) => {
                             const active = selectedBookId === book.id;
                             return (
                               <button
                                 key={book.id}
-                                className={`book-card ${active ? "book-card-active" : ""}`}
+                                className={`shelf-list-item ${active ? "shelf-list-item-active" : ""}`}
                                 onClick={() => setSelectedBookId(book.id)}
                               >
                                 <div className="shelf-card">
-                                  <div className="h-32 w-24 shrink-0 overflow-hidden rounded-[1rem] bg-[var(--paper-strong)]">
+                                  <div className="shelf-list-cover">
                                     {book.coverImage ? (
                                       // eslint-disable-next-line @next/next/no-img-element
                                       <img
@@ -1523,17 +1535,31 @@ function AppShell() {
                                         alt={book.title}
                                         className="h-full w-full object-cover"
                                       />
-                                    ) : null}
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center bg-[var(--paper-strong)] text-[var(--ink-soft)]">
+                                        無封面
+                                      </div>
+                                    )}
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <div className="truncate text-lg font-semibold">{book.title}</div>
                                     <div className="mt-1 text-sm text-[var(--ink-soft)]">
                                       {book.author || "作者未填寫"}
                                     </div>
+                                    <div className="mt-3 flex items-center gap-3">
+                                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--line-soft)]">
+                                        <div
+                                          className="h-full rounded-full bg-[linear-gradient(90deg,var(--accent),var(--accent-warm))]"
+                                          style={{ width: `${getProgress(book)}%` }}
+                                        />
+                                      </div>
+                                      <span className="text-sm font-semibold text-[var(--accent-ink)]">
+                                        {getProgress(book)}%
+                                      </span>
+                                    </div>
                                     <div className="mt-3 flex flex-wrap gap-2">
                                       {book.category ? <Tag>{book.category}</Tag> : null}
                                       <Tag>{book.totalPages || "?"} 頁</Tag>
-                                      <Tag>{getProgress(book)}% 已讀</Tag>
                                     </div>
                                   </div>
                                 </div>
@@ -1550,26 +1576,42 @@ function AppShell() {
                     </div>
                     <div>
                       {selectedBook ? (
-                        <div className="app-screen h-full">
+                        <div className="app-screen shelf-detail h-full">
                           <div className="app-screen-header">
                             <div className="text-xs text-[var(--ink-soft)]">正在閱讀</div>
-                            <div className="font-serif-display text-2xl">{selectedBook.title}</div>
+                            <div className="font-serif-display text-[2rem] leading-tight">{selectedBook.title}</div>
                           </div>
                           <div className="app-screen-body grid gap-4">
-                            <div className="aspect-[3/4] overflow-hidden rounded-[1.6rem] bg-[var(--paper-strong)]">
-                              {selectedBook.coverImage ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={selectedBook.coverImage}
-                                  alt={selectedBook.title}
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : null}
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {selectedBook.category ? <Tag>{selectedBook.category}</Tag> : null}
-                              <Tag>{selectedBook.isbn || "ISBN 未填寫"}</Tag>
-                              <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
+                            <div className="shelf-detail-hero">
+                              <div className="shelf-detail-cover">
+                                {selectedBook.coverImage ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={selectedBook.coverImage}
+                                    alt={selectedBook.title}
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center bg-[var(--paper-strong)] text-[var(--ink-soft)]">
+                                    無封面
+                                  </div>
+                                )}
+                              </div>
+                              <div className="grid gap-3">
+                                <div className="text-lg font-semibold">{selectedBook.author || "作者未填寫"}</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {selectedBook.category ? <Tag>{selectedBook.category}</Tag> : null}
+                                  <Tag>{selectedBook.isbn || "ISBN 未填寫"}</Tag>
+                                  <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
+                                </div>
+                                <div className="rounded-[1.3rem] bg-[var(--paper-strong)] p-4">
+                                  <div className="grid gap-2 sm:grid-cols-3">
+                                    <ShelfStat label="目前頁數" value={`${selectedBook.currentPage}`} />
+                                    <ShelfStat label="總頁數" value={`${selectedBook.totalPages || "?"}`} />
+                                    <ShelfStat label="進度" value={`${getProgress(selectedBook)}%`} />
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                             <div className="rounded-[1.4rem] bg-[var(--paper-strong)] p-4">
                               <div className="flex items-center justify-between text-sm">
@@ -2307,6 +2349,15 @@ function HeroMetric({ label, value }: { label: string; value: string }) {
     <div className="stat-tile">
       <div className="text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">{label}</div>
       <div className="mt-2 text-2xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function ShelfStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1.1rem] border border-[var(--line-soft)] bg-white/80 px-3 py-3 text-left">
+      <div className="text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">{label}</div>
+      <div className="mt-2 text-lg font-semibold">{value}</div>
     </div>
   );
 }

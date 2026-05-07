@@ -353,6 +353,104 @@ select:focus {
   font-size: 0.92rem;
 }
 
+.shelf-layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 1280px) {
+  .shelf-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  }
+}
+
+.shelf-toolbar {
+  display: grid;
+  gap: 1rem;
+  border-radius: 1.6rem;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 1rem;
+}
+
+@media (min-width: 960px) {
+  .shelf-toolbar {
+    grid-template-columns: minmax(0, 1fr) 270px;
+    align-items: end;
+  }
+}
+
+.category-pill {
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.62rem 0.95rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.category-pill-active {
+  border-color: rgba(111, 141, 124, 0.3);
+  background: linear-gradient(135deg, rgba(111, 141, 124, 0.14), rgba(187, 133, 82, 0.12));
+  color: var(--ink-strong);
+}
+
+.shelf-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.shelf-list-item {
+  border-radius: 1.5rem;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.95rem;
+  text-align: left;
+  box-shadow: 0 12px 24px rgba(77, 56, 25, 0.04);
+}
+
+.shelf-list-item-active {
+  border-color: rgba(111, 141, 124, 0.26);
+  background: linear-gradient(145deg, rgba(252, 249, 243, 0.98), rgba(240, 234, 225, 0.96));
+  box-shadow: 0 18px 30px rgba(77, 56, 25, 0.08);
+}
+
+.shelf-list-cover {
+  height: 7.2rem;
+  width: 5.2rem;
+  overflow: hidden;
+  border-radius: 0.95rem;
+  background: var(--paper-strong);
+  flex-shrink: 0;
+}
+
+.shelf-detail {
+  min-height: 100%;
+}
+
+.shelf-detail-hero {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (min-width: 720px) {
+  .shelf-detail-hero {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+}
+
+.shelf-detail-cover {
+  width: 100%;
+  max-width: 180px;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 1.35rem;
+  background: var(--paper-strong);
+  box-shadow: 0 18px 36px rgba(77, 56, 25, 0.1);
+}
+
 .line-clamp-2 {
   display: -webkit-box;
   overflow: hidden;
