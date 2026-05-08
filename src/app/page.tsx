@@ -847,8 +847,8 @@ function AppShell() {
     });
     setBookSearchResults([]);
     setBookSearchQuery(result.title);
-    setBookSearchMessage("正在校正頁數與版本資料...");
-    setStatus("正在校正頁數與版本資料...");
+    setBookSearchMessage("正在校正頁數、版本與目錄...");
+    setStatus("正在校正頁數、版本與目錄...");
 
     try {
       const response = await fetch("/api/books/calibrate", {
@@ -900,7 +900,7 @@ function AppShell() {
     }
 
     setMetadataSyncingId(book.id);
-    setStatus(`正在校正《${book.title}》資料...`);
+    setStatus(`正在校正《${book.title}》資料並補上目錄...`);
 
     try {
       const response = await fetch("/api/books/calibrate", {
@@ -944,7 +944,11 @@ function AppShell() {
             : item,
         ),
       );
-      setStatus(`已重新校正《${book.title}》頁數`);
+      setStatus(
+        verified.catalog?.length
+          ? `已重新校正《${book.title}》並補上目錄`
+          : `已重新校正《${book.title}》頁數`,
+      );
     } catch {
       setStatus(`校正失敗：${book.title}`);
     } finally {

@@ -70,6 +70,19 @@ describe("book api routes", () => {
       sourceUrl: "https://www.sanmin.com.tw/product/index/123456",
       catalog: [],
     });
+    mockServer.extractCatalogForBook.mockResolvedValue({
+      title: "原子習慣",
+      author: "James Clear",
+      category: "思考類",
+      isbn: "9780735211292",
+      totalPages: 320,
+      description: "",
+      coverImage: "",
+      publisher: "方智",
+      source: "三民網路書店",
+      sourceUrl: "https://www.sanmin.com.tw/product/index/123456",
+      catalog: [{ order: 1, title: "第一章 為什麼細微改變會造成巨大差異" }],
+    });
 
     const okResponse = await calibrateRoute(
       new NextRequest("http://localhost:3000/api/books/calibrate", {
@@ -80,7 +93,9 @@ describe("book api routes", () => {
     const data = await okResponse.json();
 
     expect(data.message).toContain("320");
+    expect(data.message).toContain("目錄");
     expect(data.result.publisher).toBe("方智");
+    expect(data.result.catalog).toHaveLength(1);
   });
 
   it("catalog route returns scraped catalog entries", async () => {

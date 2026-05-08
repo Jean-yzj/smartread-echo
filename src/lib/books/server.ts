@@ -326,29 +326,20 @@ export function chooseVerifiedPageCount(candidates: ServerBookResult[]) {
     : Math.round((pageCounts[middle - 1] + pageCounts[middle]) / 2);
 }
 
-export function extractCatalogFromText(text: string) {
-  const normalized = text.replace(/\r/g, "");
-  const anchor = normalized.match(/(?:目錄|目次|內容簡介[\s\S]{0,40}目錄)([\s\S]{0,2200})/);
-
-  if (!anchor) {
-    return [];
-  }
-
-  const lines = anchor[1]
-    .split(/\n+/)
-    .map((line) => line.trim())
+function normalizeCatalogLines(lines: string[]) {
+  const cleaned = lines
+    .map((line) => line.replace(/^[\s\-•●◆■□▪︎‧・]+/, "").trim())
     .filter(Boolean)
-    .filter((line) => line.length >= 4 && line.length <= 60)
+    .filter((line) => line.length >= 2 && line.length <= 80)
     .filter(
       (line) =>
         !/頁|isbn|作者|出版社|裝訂|電話|客服|營業時間|網路書店|台北市|聯絡資訊|圖書目錄|聚焦三民|小山丘|東大|弘雅|>>/.test(
           line.toLowerCase(),
         ),
-    )
-    .slice(0, 18);
+    );
 
-  const chapterLikeLines = lines.filter((line) =>
-    /^(第[\d一二三四五六七八九十百零]+[章回節部篇]|chapter|part|序|前言|後記|楔子|附錄|導論|[0-9一二三四五六七八九十]+[、.．)].+)/i.test(
+  const chapterLikeLines = cleaned.filter((line) =>
+    /^(第[\d一二三四五六七八九十百零]+[章回節部篇]|chapter|part|序|前言|後記|楔子|附錄|導論|[0-9一二三四五六七八九十]+[、.．)].+|[•●◆■□▪︎‧・]\s*.+)/i.test(
       line,
     ),
   );
@@ -357,7 +348,42 @@ export function extractCatalogFromText(text: string) {
     return [];
   }
 
-  return lines.map((title, index) => ({ title, order: index + 1 }));
+  return chapterLikeLines.slice(0, 18).map((title, index) => ({
+    title,
+    order: index + 1,
+  }));
+}
+
+export function extractCatalogFromText(text: string) {
+  const normalized = text.replace(/\r/g, "");
+  const explicitBlock =
+    normalized.match(/【目錄】([\s\S]{0,2200}?)(?:【[^】]+】|$)/) ||
+    normalized.match(/【目次】([\s\S]{0,2200}?)(?:【[^】]+】|$)/);
+
+  if (explicitBlock) {
+    const lines = explicitBlock[1]
+      .split(/(?:<BR\s*\/?>|\n|。)/i)
+      .map((line) => line.replace(/<[^>]+>/g, " ").trim());
+    const parsed = normalizeCatalogLines(lines);
+    if (parsed.length) {
+      return parsed;
+    }
+  }
+
+  const anchor = normalized.match(
+    /(?:^|\n)\s*[【]?(?:目錄|目次)(?:】|[\s:：\n])([\s\S]{0,2200})/,
+  );
+
+  if (!anchor) {
+    return [];
+  }
+
+  const lines = anchor[1]
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .flatMap((line) => line.split(/<BR\s*\/?>/i).map((item) => item.replace(/<[^>]+>/g, " ").trim()));
+
+  return normalizeCatalogLines(lines);
 }
 
 async function fetchHtml(url: string) {
@@ -601,11 +627,19 @@ export async function calibrateBookMetadata(input: {
 
   const verifiedPageCount = chooseVerifiedPageCount(reliableCandidates);
   const best = ranked[0].candidate;
+  const bestRichCandidate =
+    reliableCandidates.find(
+      (candidate) =>
+        Boolean(candidate.sourceUrl || candidate.publisher || candidate.catalog?.length),
+    ) ?? best;
 
   return {
     ...best,
+    publisher: best.publisher || bestRichCandidate.publisher || "",
+    source: best.source || bestRichCandidate.source || "",
+    sourceUrl: best.sourceUrl || bestRichCandidate.sourceUrl || "",
+    catalog: best.catalog?.length ? best.catalog : bestRichCandidate.catalog ?? [],
     totalPages: verifiedPageCount || best.totalPages || input.totalPages || 0,
-    catalog: best.catalog ?? [],
     alternatives: reliableCandidates.slice(0, 3),
   };
 }
