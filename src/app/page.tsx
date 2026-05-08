@@ -4,6 +4,15 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import Tesseract from "tesseract.js";
 import {
+  migratePersistedState,
+  STORAGE_VERSION,
+  type Book,
+  type BookSearchResult,
+  type CatalogEntry,
+  type Note,
+  type Session,
+} from "@/lib/books/shared";
+import {
   BookCopy,
   BookOpen,
   Brain,
@@ -27,37 +36,6 @@ import {
   Waves,
 } from "lucide-react";
 
-type Book = {
-  id: string;
-  title: string;
-  author: string;
-  category: string;
-  isbn: string;
-  totalPages: number;
-  currentPage: number;
-  description: string;
-  coverImage: string;
-  createdAt: string;
-};
-
-type Note = {
-  id: string;
-  bookId: string;
-  page: number;
-  rawText: string;
-  reflection: string;
-  isFavorite: boolean;
-  imageDataUrl?: string;
-  createdAt: string;
-};
-
-type Session = {
-  id: string;
-  bookId: string;
-  minutes: number;
-  startedAt: string;
-};
-
 type BookForm = {
   title: string;
   author: string;
@@ -66,6 +44,10 @@ type BookForm = {
   totalPages: string;
   description: string;
   coverImage: string;
+  publisher: string;
+  source: string;
+  sourceUrl: string;
+  catalog: CatalogEntry[];
 };
 
 type NoteForm = {
@@ -85,29 +67,6 @@ type AppSection =
   | "notes"
   | "review"
   | "studio";
-
-type BookSearchResult = {
-  title: string;
-  author: string;
-  category: string;
-  isbn: string;
-  totalPages: number;
-  description: string;
-  coverImage: string;
-  source?: string;
-};
-
-type OpenLibrarySearchResponse = {
-  docs?: Array<{
-    title?: string;
-    author_name?: string[];
-    isbn?: string[];
-    number_of_pages_median?: number;
-    cover_i?: number;
-    first_sentence?: string | string[];
-    publisher?: string[];
-  }>;
-};
 
 const STORAGE_KEY = "smartread-echo-state";
 const ECHO_DAYS = [1, 7, 30];
@@ -165,119 +124,6 @@ const LITERATURE_CATEGORY_HINTS = [
   "故事",
   "長篇",
   "短篇",
-];
-
-const LOCAL_BOOK_CATALOG: BookSearchResult[] = [
-  {
-    title: "原子習慣",
-    author: "James Clear",
-    category: "習慣養成",
-    isbn: "9780735211292",
-    totalPages: 320,
-    description: "用微小但可重複的行為設計，建立會自己運轉的生活系統。",
-    coverImage:
-      "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "思考的框架",
-    author: "Shane Parrish",
-    category: "思維決策",
-    isbn: "9780593719978",
-    totalPages: 304,
-    description: "用模型與原則整理決策，讓閱讀最後會回到真實行動。",
-    coverImage:
-      "https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "深度工作力",
-    author: "Cal Newport",
-    category: "生產力",
-    isbn: "9781455586691",
-    totalPages: 304,
-    description: "建立長時間專注與高價值輸出的工作方法。",
-    coverImage:
-      "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "一如既往",
-    author: "Morgan Housel",
-    category: "商業思維",
-    isbn: "9780593332702",
-    totalPages: 224,
-    description: "從人性與歷史的重複模式，看懂真正不會改變的事情。",
-    coverImage:
-      "https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "快思慢想",
-    author: "Daniel Kahneman",
-    category: "思維決策",
-    isbn: "9780374533557",
-    totalPages: 512,
-    description: "理解直覺與理性如何共同影響判斷與決策。",
-    coverImage:
-      "https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "為什麼要睡覺？",
-    author: "Matthew Walker",
-    category: "健康科學",
-    isbn: "9781501144318",
-    totalPages: 368,
-    description: "從腦科學與健康角度重建你對睡眠的理解。",
-    coverImage:
-      "https://images.unsplash.com/photo-1519682337058-a94d519337bc?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "納瓦爾寶典",
-    author: "Eric Jorgenson",
-    category: "人生策略",
-    isbn: "9781544514215",
-    totalPages: 242,
-    description: "整理納瓦爾對財富、判斷力與人生設計的核心觀點。",
-    coverImage:
-      "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "被討厭的勇氣",
-    author: "岸見一郎, 古賀史健",
-    category: "心理成長",
-    isbn: "9789863570110",
-    totalPages: 288,
-    description: "以對話形式理解阿德勒心理學與自我課題。",
-    coverImage:
-      "https://images.unsplash.com/photo-1511108690759-009324a90311?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "人類大歷史",
-    author: "Yuval Noah Harari",
-    category: "歷史社會",
-    isbn: "9780062316097",
-    totalPages: 464,
-    description: "從認知革命到現代社會，重新理解人類如何走到今天。",
-    coverImage:
-      "https://images.unsplash.com/photo-1476275466078-4007374efbbe?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
-  {
-    title: "最高學以致用法",
-    author: "Peter C. Brown, Henry L. Roediger III, Mark A. McDaniel",
-    category: "學習方法",
-    isbn: "9780674729018",
-    totalPages: 313,
-    description: "用科學方法提升學習效率與長期記憶效果。",
-    coverImage:
-      "https://images.unsplash.com/photo-1526243741027-444d633d7365?auto=format&fit=crop&w=900&q=80",
-    source: "SmartRead 推薦書庫",
-  },
 ];
 
 const demoBooks: Book[] = [
@@ -503,38 +349,6 @@ function normalizeBook(book: Book): Book {
     ...book,
     category: categorizeBook(book),
   };
-}
-
-function normalizeBookResult(result: BookSearchResult): BookSearchResult {
-  return {
-    ...result,
-    category: categorizeBook(result),
-  };
-}
-
-function dedupeBookResults(results: BookSearchResult[]) {
-  const seen = new Set<string>();
-  return results.filter((result) => {
-    const key = normalizeKeyword(`${result.title}-${result.author}-${result.isbn}`);
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-}
-
-function searchLocalCatalog(keyword: string) {
-  const normalizedKeyword = normalizeKeyword(keyword);
-
-  return LOCAL_BOOK_CATALOG.filter((book) => {
-    const haystack = normalizeKeyword(
-      `${book.title}${book.author}${book.isbn}${book.description}`,
-    );
-    return haystack.includes(normalizedKeyword);
-  })
-    .map(normalizeBookResult)
-    .slice(0, 6);
 }
 
 function buildEchoPrompt(note: Note, book?: Book) {
@@ -774,65 +588,6 @@ function buildProblemRecommendations(
     .slice(0, 3);
 }
 
-function scoreBookMatch(
-  target: { title: string; author?: string },
-  candidate: BookSearchResult,
-) {
-  const targetTitle = normalizeKeyword(target.title);
-  const targetAuthor = normalizeKeyword(target.author ?? "");
-  const candidateTitle = normalizeKeyword(candidate.title);
-  const candidateAuthor = normalizeKeyword(candidate.author);
-
-  let score = 0;
-
-  if (candidateTitle === targetTitle) {
-    score += 14;
-  } else if (
-    candidateTitle.includes(targetTitle) ||
-    targetTitle.includes(candidateTitle)
-  ) {
-    score += 9;
-  }
-
-  if (targetAuthor && candidateAuthor === targetAuthor) {
-    score += 10;
-  } else if (
-    targetAuthor &&
-    (candidateAuthor.includes(targetAuthor) || targetAuthor.includes(candidateAuthor))
-  ) {
-    score += 6;
-  }
-
-  if (candidate.totalPages > 0) {
-    score += 3;
-  }
-
-  return score;
-}
-
-function chooseVerifiedPageCount(candidates: BookSearchResult[]) {
-  const pageCounts = candidates
-    .map((item) => item.totalPages)
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .sort((a, b) => a - b);
-
-  if (!pageCounts.length) {
-    return 0;
-  }
-
-  const smallest = pageCounts[0];
-  const largest = pageCounts[pageCounts.length - 1];
-
-  if (smallest < 120 && largest >= 180 && largest / Math.max(smallest, 1) >= 1.7) {
-    return largest;
-  }
-
-  const middle = Math.floor(pageCounts.length / 2);
-  return pageCounts.length % 2 === 1
-    ? pageCounts[middle]
-    : Math.round((pageCounts[middle - 1] + pageCounts[middle]) / 2);
-}
-
 function AppShell() {
   const [activeSection, setActiveSection] = useState<AppSection>("search");
   const [books, setBooks] = useState<Book[]>(() => demoBooks.map(normalizeBook));
@@ -850,6 +605,10 @@ function AppShell() {
     totalPages: "",
     description: "",
     coverImage: "",
+    publisher: "",
+    source: "",
+    sourceUrl: "",
+    catalog: [],
   });
   const [noteForm, setNoteForm] = useState<NoteForm>({
     bookId: demoBooks[0]?.id ?? "",
@@ -866,6 +625,7 @@ function AppShell() {
   const [bookSearchLoading, setBookSearchLoading] = useState(false);
   const [bookSearchMessage, setBookSearchMessage] = useState("");
   const [metadataSyncingId, setMetadataSyncingId] = useState<string | null>(null);
+  const [catalogSyncingId, setCatalogSyncingId] = useState<string | null>(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("全部");
   const [shelfQuery, setShelfQuery] = useState("");
   const [problemQuery, setProblemQuery] = useState("");
@@ -885,22 +645,19 @@ function AppShell() {
     const timeoutId = window.setTimeout(() => {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as {
-          books: Book[];
-          notes: Note[];
-          sessions: Session[];
-          completedEchoes: string[];
-        };
-        setBooks(parsed.books.map(normalizeBook));
-        setNotes(parsed.notes);
-        setSessions(parsed.sessions);
-        setCompletedEchoes(parsed.completedEchoes);
-        setReadingBookId(parsed.books[0]?.id ?? "");
-        setSelectedBookId(parsed.books[0]?.id ?? "");
-        setNoteForm((current) => ({
-          ...current,
-          bookId: parsed.books[0]?.id ?? "",
-        }));
+        const parsed = migratePersistedState(JSON.parse(raw));
+        if (parsed) {
+          setBooks(parsed.books.map(normalizeBook));
+          setNotes(parsed.notes);
+          setSessions(parsed.sessions);
+          setCompletedEchoes(parsed.completedEchoes);
+          setReadingBookId(parsed.books[0]?.id ?? "");
+          setSelectedBookId(parsed.books[0]?.id ?? "");
+          setNoteForm((current) => ({
+            ...current,
+            bookId: parsed.books[0]?.id ?? "",
+          }));
+        }
       }
       setHydrated(true);
     }, 0);
@@ -916,6 +673,7 @@ function AppShell() {
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
+        version: STORAGE_VERSION,
         books,
         notes,
         sessions,
@@ -1033,175 +791,26 @@ function AppShell() {
         ) / 100
       : 0;
 
-  async function fetchGoogleCandidates(keyword: string) {
-    const response = await fetch(
-      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(keyword)}&orderBy=relevance&printType=books&maxResults=8`,
-    );
-    if (!response.ok) {
-      throw new Error(`google-books-${response.status}`);
-    }
-
-    const data = (await response.json()) as {
-      items?: Array<{
-        volumeInfo?: {
-          title?: string;
-          authors?: string[];
-          description?: string;
-          pageCount?: number;
-          publisher?: string;
-          imageLinks?: { thumbnail?: string };
-          industryIdentifiers?: Array<{
-            type?: string;
-            identifier?: string;
-          }>;
-        };
-      }>;
-    };
-
-    return (data.items ?? []).map((item) => {
-      const volume = item.volumeInfo ?? {};
-      const isbn =
-        volume.industryIdentifiers?.find((id) => id.type?.includes("ISBN"))
-          ?.identifier ?? "";
-
-      return normalizeBookResult({
-        title: volume.title ?? "未命名書籍",
-        author: volume.authors?.join(", ") ?? "",
-        category: "",
-        isbn,
-        totalPages: volume.pageCount ?? 0,
-        description: volume.description ?? "",
-        coverImage:
-          volume.imageLinks?.thumbnail?.replace("http://", "https://") ?? "",
-        source: volume.publisher
-          ? `Google Books · ${volume.publisher}`
-          : "Google Books",
-      });
-    });
-  }
-
-  async function fetchOpenLibraryCandidates(keyword: string) {
-    const fallbackResponse = await fetch(
-      `https://openlibrary.org/search.json?q=${encodeURIComponent(keyword)}&limit=8`,
-    );
-    if (!fallbackResponse.ok) {
-      throw new Error(`open-library-${fallbackResponse.status}`);
-    }
-
-    const fallbackData = (await fallbackResponse.json()) as OpenLibrarySearchResponse;
-
-    return (fallbackData.docs ?? [])
-      .filter((item) => item.title)
-      .slice(0, 8)
-      .map((item) =>
-        normalizeBookResult({
-          title: item.title ?? "未命名書籍",
-          author: item.author_name?.join(", ") ?? "",
-          category: "",
-          isbn: item.isbn?.[0] ?? "",
-          totalPages: item.number_of_pages_median ?? 0,
-          description: Array.isArray(item.first_sentence)
-            ? item.first_sentence[0] ?? ""
-            : item.first_sentence ?? "",
-          coverImage: item.cover_i
-            ? `https://covers.openlibrary.org/b/id/${item.cover_i}-L.jpg`
-            : "",
-          source: item.publisher?.[0]
-            ? `Open Library · ${item.publisher[0]}`
-            : "Open Library",
-        }),
-      );
-  }
-
-  async function verifyBookMetadata(result: BookSearchResult) {
-    const keyword = [result.title, result.author].filter(Boolean).join(" ");
-    const settled = await Promise.allSettled([
-      fetchGoogleCandidates(keyword),
-      fetchOpenLibraryCandidates(keyword),
-    ]);
-
-    const merged = dedupeBookResults(
-      settled.flatMap((entry) => (entry.status === "fulfilled" ? entry.value : [])),
-    );
-
-    const ranked = merged
-      .map((candidate) => ({
-        candidate,
-        score: scoreBookMatch(
-          { title: result.title, author: result.author },
-          candidate,
-        ),
-      }))
-      .filter((entry) => entry.score >= 12)
-      .sort((a, b) => b.score - a.score);
-
-    if (!ranked.length) {
-      return null;
-    }
-
-    const reliableCandidates = ranked
-      .filter((entry) => entry.score >= ranked[0].score - 3)
-      .map((entry) => entry.candidate);
-
-    const verifiedPageCount = chooseVerifiedPageCount(reliableCandidates);
-    const best = ranked[0].candidate;
-
-    return {
-      ...result,
-      totalPages: verifiedPageCount || best.totalPages || result.totalPages,
-      source: best.source || result.source,
-      description: result.description || best.description,
-      coverImage: result.coverImage || best.coverImage,
-      isbn: result.isbn || best.isbn,
-    };
-  }
-
   const searchBooksByTitle = useEffectEvent(async (keyword: string) => {
     setBookSearchLoading(true);
     setBookSearchMessage("");
-    const localResults = searchLocalCatalog(keyword);
 
     try {
-      const results = await fetchGoogleCandidates(keyword);
-      if (!results.length) {
-        throw new Error("google-books-empty");
+      const response = await fetch(`/api/books/search?q=${encodeURIComponent(keyword)}`);
+      if (!response.ok) {
+        throw new Error("search-failed");
       }
-
-      const mergedResults = dedupeBookResults([...localResults, ...results]).slice(
-        0,
-        8,
-      );
-
-      setBookSearchResults(mergedResults);
+      const data = (await response.json()) as {
+        results: BookSearchResult[];
+        message?: string;
+      };
+      setBookSearchResults(data.results ?? []);
       setBookSearchLoading(false);
-      setBookSearchMessage(
-        mergedResults.length ? "" : "目前沒有找到相符書籍",
-      );
+      setBookSearchMessage(data.message ?? "");
     } catch {
-      try {
-        const results = await fetchOpenLibraryCandidates(keyword);
-
-        const mergedResults = dedupeBookResults([
-          ...localResults,
-          ...results,
-        ]).slice(0, 8);
-
-        setBookSearchResults(mergedResults);
-        setBookSearchLoading(false);
-        setBookSearchMessage(
-          mergedResults.length
-            ? "Google 書庫暫時忙碌，已改用備援搜尋"
-            : "找不到相符書籍，可直接手動新增",
-        );
-      } catch {
-        setBookSearchResults(localResults);
-        setBookSearchLoading(false);
-        setBookSearchMessage(
-          localResults.length
-            ? "外部書庫暫時不可用，已改用內建書單"
-            : "書名搜尋暫時失敗，請直接手動新增書籍資料",
-        );
-      }
+      setBookSearchResults([]);
+      setBookSearchLoading(false);
+      setBookSearchMessage("書名搜尋暫時失敗，請稍後再試或直接手動新增。");
     }
   });
 
@@ -1231,6 +840,10 @@ function AppShell() {
       totalPages: result.totalPages ? String(result.totalPages) : "",
       description: result.description,
       coverImage: result.coverImage,
+      publisher: result.publisher ?? "",
+      source: result.source ?? "",
+      sourceUrl: result.sourceUrl ?? "",
+      catalog: result.catalog ?? [],
     });
     setBookSearchResults([]);
     setBookSearchQuery(result.title);
@@ -1238,8 +851,25 @@ function AppShell() {
     setStatus("正在校正頁數與版本資料...");
 
     try {
-      const verified = await verifyBookMetadata(result);
-      const finalResult = verified ?? result;
+      const response = await fetch("/api/books/calibrate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: result.title,
+          author: result.author,
+          isbn: result.isbn,
+          totalPages: result.totalPages,
+          sourceUrl: result.sourceUrl,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error("calibrate-failed");
+      }
+      const data = (await response.json()) as {
+        result: BookSearchResult | null;
+        message?: string;
+      };
+      const finalResult = data.result ?? result;
       setBookForm({
         title: finalResult.title,
         author: finalResult.author,
@@ -1248,17 +878,13 @@ function AppShell() {
         totalPages: finalResult.totalPages ? String(finalResult.totalPages) : "",
         description: finalResult.description,
         coverImage: finalResult.coverImage,
+        publisher: finalResult.publisher ?? "",
+        source: finalResult.source ?? "",
+        sourceUrl: finalResult.sourceUrl ?? "",
+        catalog: finalResult.catalog ?? [],
       });
-      setBookSearchMessage(
-        verified
-          ? `已校正頁數：${finalResult.totalPages || "未提供"} 頁`
-          : "已帶入書籍資料",
-      );
-      setStatus(
-        verified
-          ? `已校正《${finalResult.title}》頁數`
-          : "已帶入書籍資料",
-      );
+      setBookSearchMessage(data.message ?? "已帶入書籍資料");
+      setStatus(data.message ?? "已帶入書籍資料");
     } catch {
       setBookSearchMessage("已帶入書籍資料");
       setStatus("已帶入書籍資料");
@@ -1277,16 +903,24 @@ function AppShell() {
     setStatus(`正在校正《${book.title}》資料...`);
 
     try {
-      const verified = await verifyBookMetadata({
-        title: book.title,
-        author: book.author,
-        category: book.category,
-        isbn: book.isbn,
-        totalPages: book.totalPages,
-        description: book.description,
-        coverImage: book.coverImage,
-        source: "",
+      const response = await fetch("/api/books/calibrate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: book.title,
+          author: book.author,
+          isbn: book.isbn,
+          totalPages: book.totalPages,
+          sourceUrl: book.sourceUrl,
+        }),
       });
+      if (!response.ok) {
+        throw new Error("calibrate-failed");
+      }
+      const data = (await response.json()) as {
+        result: BookSearchResult | null;
+      };
+      const verified = data.result;
 
       if (!verified) {
         setStatus(`找不到更穩定的版本資料：${book.title}`);
@@ -1302,6 +936,10 @@ function AppShell() {
                 totalPages: verified.totalPages || item.totalPages,
                 description: verified.description || item.description,
                 coverImage: verified.coverImage || item.coverImage,
+                publisher: verified.publisher || item.publisher,
+                source: verified.source || item.source,
+                sourceUrl: verified.sourceUrl || item.sourceUrl,
+                catalog: verified.catalog?.length ? verified.catalog : item.catalog,
               }
             : item,
         ),
@@ -1311,6 +949,59 @@ function AppShell() {
       setStatus(`校正失敗：${book.title}`);
     } finally {
       setMetadataSyncingId(null);
+    }
+  }
+
+  async function syncCatalogForBook(bookId: string) {
+    const book = books.find((item) => item.id === bookId);
+    if (!book) {
+      return;
+    }
+
+    setCatalogSyncingId(book.id);
+    setStatus(`正在擷取《${book.title}》目錄...`);
+
+    try {
+      const response = await fetch("/api/books/catalog", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: book.title,
+          author: book.author,
+          isbn: book.isbn,
+          sourceUrl: book.sourceUrl,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error("catalog-failed");
+      }
+      const data = (await response.json()) as {
+        result: BookSearchResult | null;
+        message?: string;
+      };
+      if (!data.result) {
+        setStatus(data.message ?? `找不到《${book.title}》的目錄來源`);
+        return;
+      }
+
+      setBooks((current) =>
+        current.map((item) =>
+          item.id === bookId
+            ? {
+                ...item,
+                publisher: data.result?.publisher || item.publisher,
+                source: data.result?.source || item.source,
+                sourceUrl: data.result?.sourceUrl || item.sourceUrl,
+                catalog: data.result?.catalog?.length ? data.result.catalog : item.catalog,
+              }
+            : item,
+        ),
+      );
+      setStatus(data.message ?? `已更新《${book.title}》目錄`);
+    } catch {
+      setStatus(`目錄擷取失敗：${book.title}`);
+    } finally {
+      setCatalogSyncingId(null);
     }
   }
 
@@ -1335,6 +1026,10 @@ function AppShell() {
       currentPage: 0,
       description: bookForm.description.trim(),
       coverImage: bookForm.coverImage.trim(),
+      publisher: bookForm.publisher.trim(),
+      source: bookForm.source.trim(),
+      sourceUrl: bookForm.sourceUrl.trim(),
+      catalog: bookForm.catalog,
       createdAt: new Date().toISOString(),
     };
 
@@ -1357,6 +1052,10 @@ function AppShell() {
       totalPages: "",
       description: "",
       coverImage: "",
+      publisher: "",
+      source: "",
+      sourceUrl: "",
+      catalog: [],
     });
     setBookSearchQuery("");
     setBookSearchResults([]);
@@ -1545,7 +1244,7 @@ function AppShell() {
   async function exportBackup() {
     try {
       const payload = JSON.stringify(
-        { books, notes, sessions, completedEchoes },
+        { version: STORAGE_VERSION, books, notes, sessions, completedEchoes },
         null,
         2,
       );
@@ -1912,6 +1611,7 @@ function AppShell() {
                           {selectedBook.category ? <Tag>{selectedBook.category}</Tag> : null}
                           <Tag>{selectedBook.isbn || "ISBN 未填寫"}</Tag>
                           <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
+                          {selectedBook.publisher ? <Tag>{selectedBook.publisher}</Tag> : null}
                         </div>
                       </div>
                       <div className="detail-scroll rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
@@ -2056,6 +1756,8 @@ function AppShell() {
                                   {selectedBook.category ? <Tag>{selectedBook.category}</Tag> : null}
                                   <Tag>{selectedBook.isbn || "ISBN 未填寫"}</Tag>
                                   <Tag>{selectedBook.totalPages || "?"} 頁</Tag>
+                                  {selectedBook.publisher ? <Tag>{selectedBook.publisher}</Tag> : null}
+                                  {selectedBook.source ? <Tag>{selectedBook.source}</Tag> : null}
                                 </div>
                                 <div className="rounded-[1.3rem] bg-[var(--paper-strong)] p-4">
                                   <div className="grid gap-2 sm:grid-cols-3">
@@ -2107,6 +1809,36 @@ function AppShell() {
                             </div>
                             <div className="detail-scroll rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4 text-sm leading-7 text-[var(--ink-soft)]">
                               {selectedBook.description || "尚未填寫這本書的定位摘要。"}
+                            </div>
+                            <div className="rounded-[1.4rem] border border-[var(--line-soft)] bg-white/72 p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-semibold">章節目錄</div>
+                                  <div className="mt-1 text-sm text-[var(--ink-soft)]">
+                                    {selectedBook.catalog?.length
+                                      ? `已收錄 ${selectedBook.catalog.length} 個章節項目`
+                                      : "尚未擷取目錄"}
+                                  </div>
+                                </div>
+                                <button
+                                  className="button-secondary"
+                                  onClick={() => void syncCatalogForBook(selectedBook.id)}
+                                >
+                                  {catalogSyncingId === selectedBook.id ? "擷取中..." : "擷取目錄"}
+                                </button>
+                              </div>
+                              {selectedBook.catalog?.length ? (
+                                <div className="mt-4 grid gap-2">
+                                  {selectedBook.catalog.slice(0, 8).map((entry) => (
+                                    <div
+                                      key={`${entry.order}-${entry.title}`}
+                                      className="rounded-[1rem] bg-[var(--paper-strong)] px-3 py-2 text-sm text-[var(--ink-soft)]"
+                                    >
+                                      {entry.order}. {entry.title}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                             <div className="flex flex-wrap gap-3">
                               <button

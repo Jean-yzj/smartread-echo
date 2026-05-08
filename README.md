@@ -4,7 +4,9 @@ SmartRead Echo is a one-day MVP for a private reading retention platform. It tur
 
 ## What this MVP includes
 
-- ISBN-based book creation using Google Books
+- title-first book search with server-side metadata calibration
+- multi-source metadata correction for page count, publisher, and ISBN
+- publisher/retailer catalog extraction flow for owned books
 - private OCR note capture with `tesseract.js`
 - reflection-first note storage
 - Echo review cards on 1 / 7 / 30 day intervals
@@ -18,6 +20,7 @@ SmartRead Echo is a one-day MVP for a private reading retention platform. It tur
 - React 19
 - TypeScript
 - Tailwind CSS 4
+- `cheerio` for server-side metadata scraping
 - `tesseract.js` for in-browser OCR
 - `lucide-react` for icons
 
@@ -26,6 +29,18 @@ SmartRead Echo is a one-day MVP for a private reading retention platform. It tur
 - This MVP stores data in `localStorage` so it works immediately without external setup.
 - AI guidance is implemented as a local rules-based placeholder so the experience is demoable without API keys.
 - The architecture is intentionally ready to swap in Supabase, OpenAI, Gemini, and push notifications later.
+- Book metadata search and calibration are now routed through server APIs so the frontend no longer talks to provider sources directly.
+
+## Book metadata pipeline
+
+- `GET /api/books/search?q=...`
+  - merges local trusted seeds, Open Library, Google Books, and selected retailer results
+- `POST /api/books/calibrate`
+  - re-ranks candidate editions and corrects page count, publisher, source, and ISBN
+- `POST /api/books/catalog`
+  - uses a saved `sourceUrl` to scrape a specific retailer/publisher page for chapter data when available
+
+BDD acceptance scenarios live in [docs/BDD-book-metadata.md](/tmp/smartread-echo-push/docs/BDD-book-metadata.md).
 
 ## Run locally
 
@@ -40,6 +55,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ```bash
 npm run lint
+npm test
 npm run build
 ```
 
