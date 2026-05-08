@@ -5,9 +5,11 @@ const mockServer = vi.hoisted(() => ({
   dedupeBookResults: vi.fn((results) => results),
   fetchGoogleCandidates: vi.fn(),
   fetchOpenLibraryCandidates: vi.fn(),
+  searchKingstoneCandidates: vi.fn(),
   searchLocalCatalog: vi.fn(),
   searchSanminCandidates: vi.fn(),
   calibrateBookMetadata: vi.fn(),
+  extractCatalogEntries: vi.fn(),
   extractCatalogForBook: vi.fn(),
 }));
 
@@ -37,6 +39,7 @@ describe("book api routes", () => {
     mockServer.fetchGoogleCandidates.mockResolvedValue([]);
     mockServer.fetchOpenLibraryCandidates.mockRejectedValue(new Error("quota"));
     mockServer.searchSanminCandidates.mockResolvedValue([]);
+    mockServer.searchKingstoneCandidates.mockResolvedValue([]);
 
     const response = await searchRoute(
       new NextRequest("http://localhost:3000/api/books/search?q=%E5%8E%9F%E5%AD%90%E7%BF%92%E6%85%A3"),
@@ -123,5 +126,27 @@ describe("book api routes", () => {
 
     expect(data.message).toContain("1");
     expect(data.result.catalog).toHaveLength(1);
+  });
+
+  it("catalog route can parse manually pasted chapter text", async () => {
+    mockServer.extractCatalogEntries.mockReturnValue([
+      { order: 1, title: "第一章 找回注意力" },
+      { order: 2, title: "第二章 建立系統" },
+    ]);
+
+    const response = await catalogRoute(
+      new NextRequest("http://localhost:3000/api/books/catalog", {
+        method: "POST",
+        body: JSON.stringify({
+          title: "原子習慣",
+          manualText: "第一章 找回注意力\n第二章 建立系統",
+        }),
+      }),
+    );
+    const data = await response.json();
+
+    expect(data.message).toContain("解析 2 個目錄項目");
+    expect(data.result.source).toBe("手動補錄");
+    expect(data.result.catalog).toHaveLength(2);
   });
 });

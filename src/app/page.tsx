@@ -626,6 +626,7 @@ function AppShell() {
   const [bookSearchMessage, setBookSearchMessage] = useState("");
   const [metadataSyncingId, setMetadataSyncingId] = useState<string | null>(null);
   const [catalogSyncingId, setCatalogSyncingId] = useState<string | null>(null);
+  const [manualCatalogDrafts, setManualCatalogDrafts] = useState<Record<string, string>>({});
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("全部");
   const [shelfQuery, setShelfQuery] = useState("");
   const [problemQuery, setProblemQuery] = useState("");
@@ -757,6 +758,14 @@ function AppShell() {
 
   const selectedBook =
     books.find((book) => book.id === selectedBookId) ?? books[0] ?? null;
+  const manualCatalogText =
+    selectedBook
+      ? (manualCatalogDrafts[selectedBook.id] ??
+        (selectedBook.catalog?.length
+          ? selectedBook.catalog.map((entry) => entry.title).join("\n")
+          : ""))
+      : "";
+
   const readingBook =
     books.find((book) => book.id === readingBookId) ?? books[0] ?? null;
   const readingGuide = readingBook ? createPreReadGuide(readingBook) : null;
@@ -956,14 +965,18 @@ function AppShell() {
     }
   }
 
-  async function syncCatalogForBook(bookId: string) {
+  async function syncCatalogForBook(bookId: string, manualText?: string) {
     const book = books.find((item) => item.id === bookId);
     if (!book) {
       return;
     }
 
     setCatalogSyncingId(book.id);
-    setStatus(`正在擷取《${book.title}》目錄...`);
+    setStatus(
+      manualText?.trim()
+        ? `正在解析《${book.title}》的手動目錄...`
+        : `正在擷取《${book.title}》目錄...`,
+    );
 
     try {
       const response = await fetch("/api/books/catalog", {
@@ -974,6 +987,7 @@ function AppShell() {
           author: book.author,
           isbn: book.isbn,
           sourceUrl: book.sourceUrl,
+          manualText: manualText?.trim() || undefined,
         }),
       });
       if (!response.ok) {
@@ -1001,9 +1015,20 @@ function AppShell() {
             : item,
         ),
       );
+      const parsedCatalog = data.result?.catalog;
+      if (parsedCatalog?.length) {
+        setManualCatalogDrafts((current) => ({
+          ...current,
+          [bookId]: parsedCatalog.map((entry) => entry.title).join("\n"),
+        }));
+      }
       setStatus(data.message ?? `已更新《${book.title}》目錄`);
     } catch {
-      setStatus(`目錄擷取失敗：${book.title}`);
+      setStatus(
+        manualText?.trim()
+          ? `手動目錄解析失敗：${book.title}`
+          : `目錄擷取失敗：${book.title}`,
+      );
     } finally {
       setCatalogSyncingId(null);
     }
@@ -1830,6 +1855,35 @@ function AppShell() {
                                 >
                                   {catalogSyncingId === selectedBook.id ? "擷取中..." : "擷取目錄"}
                                 </button>
+                              </div>
+                              <div className="mt-4 grid gap-3">
+                                <textarea
+                                  className="textarea min-h-[150px]"
+                                  placeholder="如果外部來源抓不到，可以貼上出版社頁、通路頁或你手上的目錄文字，系統會自動解析章節。"
+                                  value={manualCatalogText}
+                                  onChange={(event) =>
+                                    setManualCatalogDrafts((current) => ({
+                                      ...current,
+                                      [selectedBook.id]: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <div className="flex flex-wrap gap-3">
+                                  <button
+                                    className="button-secondary"
+                                    onClick={() =>
+                                      void syncCatalogForBook(
+                                        selectedBook.id,
+                                        manualCatalogText,
+                                      )
+                                    }
+                                  >
+                                    {catalogSyncingId === selectedBook.id ? "解析中..." : "解析貼上目錄"}
+                                  </button>
+                                  <div className="text-sm text-[var(--ink-soft)]">
+                                    支援貼上 `第一章...`、`【目錄】...`、或含 `&lt;br&gt;` 的網頁文字
+                                  </div>
+                                </div>
                               </div>
                               {selectedBook.catalog?.length ? (
                                 <div className="mt-4 grid gap-2">

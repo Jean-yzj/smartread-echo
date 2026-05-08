@@ -354,6 +354,15 @@ function normalizeCatalogLines(lines: string[]) {
   }));
 }
 
+export function extractCatalogEntries(text: string) {
+  const normalized = text.replace(/\r/g, "");
+  const lines = normalized
+    .split(/(?:<BR\s*\/?>|\n|。)/i)
+    .map((line) => line.replace(/<[^>]+>/g, " ").trim());
+
+  return normalizeCatalogLines(lines);
+}
+
 export function extractCatalogFromText(text: string) {
   const normalized = text.replace(/\r/g, "");
   const explicitBlock =
@@ -361,10 +370,7 @@ export function extractCatalogFromText(text: string) {
     normalized.match(/【目次】([\s\S]{0,2200}?)(?:【[^】]+】|$)/);
 
   if (explicitBlock) {
-    const lines = explicitBlock[1]
-      .split(/(?:<BR\s*\/?>|\n|。)/i)
-      .map((line) => line.replace(/<[^>]+>/g, " ").trim());
-    const parsed = normalizeCatalogLines(lines);
+    const parsed = extractCatalogEntries(explicitBlock[1]);
     if (parsed.length) {
       return parsed;
     }
@@ -447,6 +453,55 @@ export function parseBooksComProduct(html: string, url: string): ServerBookResul
   });
 }
 
+export function parseKingstoneProduct(html: string, url: string): ServerBookResult | null {
+  const $ = cheerio.load(html);
+  const metaDescription =
+    $('meta[name="description"]').attr("content")?.trim() || "";
+  const bodyText = $("body").text();
+  const title =
+    $('meta[property="og:title"]').attr("content")?.replace(/\s*－金石堂$/, "").trim() ||
+    pickText($, ["h1"]);
+
+  if (!title) {
+    return null;
+  }
+
+  const author =
+    metaDescription.match(/作者:\s*([^|]+)/)?.[1]?.trim() ||
+    pickText($, [".basic2box .author", ".author"]) ||
+    "";
+  const publisher =
+    metaDescription.match(/\|\s*([^|]+?)\s+\d{4}\/\d{2}\/\d{2}出版/)?.[1]?.trim() ||
+    pickText($, [".title_basic:contains('出版社') + a", ".publish a"]) ||
+    "";
+  const isbn =
+    metaDescription.match(/ISBN:\s*([0-9Xx-]{10,20})/)?.[1]?.trim() ||
+    bodyText.match(/ISBN[：:\s]+([0-9Xx-]{10,20})/)?.[1]?.trim() ||
+    "";
+  const coverImage =
+    $('meta[property="og:image"]').attr("content")?.trim() || "";
+  const description = pickText($, [".pdintro_txt1field", ".panelCon", ".content_pcoll"]) || metaDescription;
+  const catalogHtml = $(".catalogfield").first().html()?.trim() ?? "";
+  const catalogEntries = extractCatalogEntries(catalogHtml);
+  const parsedCatalog = catalogEntries.length
+    ? catalogEntries
+    : extractCatalogFromText(catalogHtml);
+
+  return normalizeBookResult({
+    title,
+    author: author.replace(/\s*著$/, "").trim(),
+    category: "",
+    isbn,
+    totalPages: Number(bodyText.match(/頁數[：:\s]+(\d+)/)?.[1] ?? 0),
+    description,
+    coverImage,
+    publisher,
+    source: "金石堂",
+    sourceUrl: url,
+    catalog: parsedCatalog,
+  });
+}
+
 export function parseSanminProduct(html: string, url: string): ServerBookResult | null {
   const $ = cheerio.load(html);
   const bodyText = $("body").text();
@@ -508,6 +563,10 @@ export async function scrapeProductPage(url: string) {
 
   if (url.includes("books.com.tw")) {
     return parseBooksComProduct(html, url);
+  }
+
+  if (url.includes("kingstone.com.tw")) {
+    return parseKingstoneProduct(html, url);
   }
 
   if (url.includes("sanmin.com.tw")) {
@@ -577,6 +636,48 @@ export async function searchSanminCandidates(keyword: string) {
     links.map((link) => scrapeProductPage(`https://www.sanmin.com.tw${link}`)),
   );
 
+  return products.filter((item): item is NonNullable<typeof item> => Boolean(item));
+}
+
+export async function searchKingstoneCandidates(keyword: string) {
+  const url = `https://www.kingstone.com.tw/search/key/${encodeURIComponent(keyword)}`;
+  const html = await fetchHtml(url);
+  const $ = cheerio.load(html);
+  const normalizedKeyword = normalizeKeyword(keyword);
+
+  const links = $('h3.pdnamebox a[href^="/basic/"]')
+    .toArray()
+    .map((anchor) => {
+      const href = $(anchor).attr("href") ?? "";
+      const title = $(anchor).text().trim();
+      const unit = $(anchor).closest(".displayunit");
+      const author = unit.find(".author a").map((_, el) => $(el).text().trim()).get().join(", ");
+      const publisher = unit.find(".publish a").first().text().trim();
+      return { href, title, author, publisher };
+    })
+    .filter((item) => item.href && item.title)
+    .filter(
+      (item) =>
+        normalizeKeyword(item.title).includes(normalizedKeyword) ||
+        normalizedKeyword.includes(normalizeKeyword(item.title)),
+    )
+    .filter((item, index, all) => all.findIndex((candidate) => candidate.href === item.href) === index)
+    .slice(0, 4);
+
+  const products: Array<ServerBookResult | null> = await Promise.all(
+    links.map(async (item) => {
+      const result = await scrapeProductPage(`https://www.kingstone.com.tw${item.href}`);
+      if (!result) {
+        return null;
+      }
+      return normalizeBookResult({
+        ...result,
+        author: result.author || item.author,
+        publisher: result.publisher || item.publisher,
+      });
+    }),
+  );
+
   return products.filter((item): item is ServerBookResult => Boolean(item));
 }
 
@@ -594,6 +695,7 @@ export async function calibrateBookMetadata(input: {
     fetchGoogleCandidates(keyword),
     fetchOpenLibraryCandidates(keyword),
     searchSanminCandidates(keyword),
+    searchKingstoneCandidates(keyword),
     input.sourceUrl ? scrapeProductPage(input.sourceUrl) : Promise.resolve(null),
   ]);
 

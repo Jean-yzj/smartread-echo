@@ -1,8 +1,10 @@
 import {
   categorizeBook,
   chooseVerifiedPageCount,
+  extractCatalogEntries,
   dedupeBookResults,
   extractCatalogFromText,
+  parseKingstoneProduct,
   parseSanminProduct,
   scoreBookMatch,
 } from "@/lib/books/server";
@@ -101,6 +103,20 @@ describe("books server helpers", () => {
     ]);
   });
 
+  it("extracts catalog lines from manually pasted chapter text", () => {
+    const catalog = extractCatalogEntries(`
+      第一章 找回注意力
+      第二章 建立系統
+      第三章 持續複利
+    `);
+
+    expect(catalog).toEqual([
+      { order: 1, title: "第一章 找回注意力" },
+      { order: 2, title: "第二章 建立系統" },
+      { order: 3, title: "第三章 持續複利" },
+    ]);
+  });
+
   it("parses a Sanmin product page into canonical metadata", () => {
     const result = parseSanminProduct(
       `
@@ -131,6 +147,42 @@ describe("books server helpers", () => {
       sourceUrl: "https://www.sanmin.com.tw/product/index/123456",
     });
     expect(result?.catalog).toEqual([]);
+  });
+
+  it("parses a Kingstone product page into metadata and catalog", () => {
+    const result = parseKingstoneProduct(
+      `
+      <html>
+        <head>
+          <meta property="og:title" content="原子習慣：細微改變帶來巨大成就的實證法則 －金石堂" />
+          <meta property="og:image" content="https://example.com/cover.jpg" />
+          <meta name="description" content="原子習慣：細微改變帶來巨大成就的實證法則 | 作者: James Clear | 方智 2019/06/01出版 | 類別: 財經企管 ＞ 職場工作術 ＞ 工作哲學 | ISBN: 9789861755267 | 語言: 中文繁體" />
+        </head>
+        <body>
+          <div class="pdintro_txt1field">這是一本談習慣設計的書。</div>
+          <div class="catalogfield panelCon">
+            <span>前言<br />第一章 微小改變的複利效應<br />第二章 身分認同與習慣</span>
+          </div>
+          頁數：328
+        </body>
+      </html>
+      `,
+      "https://www.kingstone.com.tw/basic/2011760319040/",
+    );
+
+    expect(result).toMatchObject({
+      title: "原子習慣：細微改變帶來巨大成就的實證法則",
+      author: "James Clear",
+      publisher: "方智",
+      isbn: "9789861755267",
+      source: "金石堂",
+      sourceUrl: "https://www.kingstone.com.tw/basic/2011760319040/",
+    });
+    expect(result?.catalog).toEqual([
+      { order: 1, title: "前言" },
+      { order: 2, title: "第一章 微小改變的複利效應" },
+      { order: 3, title: "第二章 身分認同與習慣" },
+    ]);
   });
 
   it("scores isbn-exact matches above fuzzy matches", () => {
