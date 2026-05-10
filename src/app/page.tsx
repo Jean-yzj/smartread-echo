@@ -24,6 +24,7 @@ import {
   Download,
   GitBranch,
   Library,
+  Menu,
   Plus,
   Quote,
   ScanText,
@@ -34,6 +35,7 @@ import {
   TimerReset,
   Trophy,
   Waves,
+  X,
 } from "lucide-react";
 
 type BookForm = {
@@ -624,6 +626,7 @@ function AppShell() {
   const [bookSearchResults, setBookSearchResults] = useState<BookSearchResult[]>([]);
   const [bookSearchLoading, setBookSearchLoading] = useState(false);
   const [bookSearchMessage, setBookSearchMessage] = useState("");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [metadataSyncingId, setMetadataSyncingId] = useState<string | null>(null);
   const [catalogSyncingId, setCatalogSyncingId] = useState<string | null>(null);
   const [manualCatalogDrafts, setManualCatalogDrafts] = useState<Record<string, string>>({});
@@ -641,6 +644,8 @@ function AppShell() {
   const noiseRef = useRef<AudioBufferSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const shareCardRef = useRef<HTMLDivElement | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const latestSearchIdRef = useRef(0);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -701,6 +706,20 @@ function AppShell() {
 
     return () => window.clearInterval(timer);
   }, [timerRunning]);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileSidebarOpen ? "hidden" : "";
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileSidebarOpen]);
+
+  useEffect(() => {
+    return () => {
+      searchAbortRef.current?.abort();
+    };
+  }, []);
 
   const booksById = useMemo(
     () => Object.fromEntries(books.map((book) => [book.id, book])),
@@ -800,23 +819,66 @@ function AppShell() {
         ) / 100
       : 0;
 
+  function changeSection(section: AppSection) {
+    setActiveSection(section);
+    setMobileSidebarOpen(false);
+  }
+
+  async function fetchJsonWithTimeout<T>(
+    url: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    const abortListener = () => controller.abort();
+
+    signal?.addEventListener("abort", abortListener, { once: true });
+
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`request-failed-${response.status}`);
+      }
+
+      return (await response.json()) as T;
+    } finally {
+      window.clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", abortListener);
+    }
+  }
+
   const searchBooksByTitle = useEffectEvent(async (keyword: string) => {
+    const requestId = latestSearchIdRef.current + 1;
+    latestSearchIdRef.current = requestId;
+
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
     setBookSearchLoading(true);
     setBookSearchMessage("");
 
     try {
-      const response = await fetch(`/api/books/search?q=${encodeURIComponent(keyword)}`);
-      if (!response.ok) {
-        throw new Error("search-failed");
-      }
-      const data = (await response.json()) as {
+      const data = await fetchJsonWithTimeout<{
         results: BookSearchResult[];
         message?: string;
-      };
+      }>(`/api/books/search?q=${encodeURIComponent(keyword)}`, 4500, controller.signal);
+
+      if (requestId !== latestSearchIdRef.current || controller.signal.aborted) {
+        return;
+      }
+
       setBookSearchResults(data.results ?? []);
       setBookSearchLoading(false);
       setBookSearchMessage(data.message ?? "");
     } catch {
+      if (requestId !== latestSearchIdRef.current || controller.signal.aborted) {
+        return;
+      }
       setBookSearchResults([]);
       setBookSearchLoading(false);
       setBookSearchMessage("書名搜尋暫時失敗，請稍後再試或直接手動新增。");
@@ -828,6 +890,8 @@ function AppShell() {
 
     const timeoutId = window.setTimeout(() => {
       if (!keyword) {
+        latestSearchIdRef.current += 1;
+        searchAbortRef.current?.abort();
         setBookSearchResults([]);
         setBookSearchLoading(false);
         setBookSearchMessage("");
@@ -1351,91 +1415,130 @@ function AppShell() {
     setStatus("本次閱讀已記錄");
   }
 
+  function renderSidebarContent() {
+    return (
+      <>
+        <div className="brand-card">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-bold tracking-[0.22em] text-white/84 uppercase">
+            <Sparkles className="h-3.5 w-3.5" />
+            SmartRead Echo
+          </div>
+          <div className="mt-4">
+            <div className="font-serif-display text-[1.7rem] leading-tight text-white">
+              閱讀控制台
+            </div>
+            <div className="mt-2 text-sm text-white/72">
+              Read. Capture. Recall.
+            </div>
+          </div>
+        </div>
+
+        <div className="sidebar-stats">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] tracking-[0.22em] text-white/58 uppercase">
+                Progress
+              </div>
+              <div className="mt-2 text-3xl font-semibold text-white">{inkDrops}</div>
+              <div className="mt-1 text-sm text-white/78">
+                Lv.{level.level} {level.label}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-white/6 px-3 py-2 text-sm text-white/88">
+              {streakDays} 天
+            </div>
+          </div>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-[linear-gradient(90deg,#f8d9a9,#e7ab66,#cf8c4f)]"
+              style={{
+                width: `${nextLevelConfig ? ((inkDrops - currentLevelConfig.min) / (nextLevelConfig.min - currentLevelConfig.min)) * 100 : 100}%`,
+              }}
+            />
+          </div>
+          <div className="mt-3 text-xs text-white/66">
+            {nextLevelConfig
+              ? `距離 Lv.${nextLevelConfig.level} 還差 ${Math.max(0, nextLevelConfig.min - inkDrops)} 點`
+              : "目前已達最高等級"}
+          </div>
+        </div>
+
+        <nav className="grid gap-3">
+          {sections.map((section) => {
+            const active = section.id === activeSection;
+            return (
+              <button
+                key={section.id}
+                className={`sidebar-link ${active ? "sidebar-link-active" : ""}`}
+                onClick={() => changeSection(section.id)}
+              >
+                <span className="sidebar-icon">{section.icon}</span>
+                <span className="min-w-0 text-left">
+                  <span className="block text-sm font-semibold text-white">
+                    {section.title}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] tracking-[0.18em] text-white/62 uppercase">
+                    {section.short}
+                  </span>
+                </span>
+                <ChevronRight className="ml-auto h-4 w-4 text-white/60" />
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="mt-auto grid grid-cols-2 gap-3 rounded-[1.7rem] border border-white/8 bg-white/3 p-4">
+          <SidebarMetric label="藏書" value={`${books.length}`} />
+          <SidebarMetric label="分鐘" value={`${totalReadingMinutes}`} />
+          <SidebarMetric label="回聲" value={`${dueEchoes.length}`} />
+          <SidebarMetric label="金句" value={`${favoriteNotes.length}`} />
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="app-shell min-h-screen text-[var(--ink-strong)]">
+      {mobileSidebarOpen ? (
+        <button
+          aria-label="Close navigation"
+          className="mobile-sidebar-backdrop lg:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
+      <aside
+        className={`app-sidebar mobile-sidebar-drawer flex flex-col gap-5 p-5 lg:hidden ${mobileSidebarOpen ? "mobile-sidebar-drawer-open" : ""}`}
+      >
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-white/88">功能選單</div>
+          <button
+            aria-label="Close navigation"
+            className="mobile-sidebar-close"
+            onClick={() => setMobileSidebarOpen(false)}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {renderSidebarContent()}
+      </aside>
       <main className="mx-auto grid min-h-screen w-full max-w-[1540px] gap-5 px-4 py-4 lg:grid-cols-[290px_minmax(0,1fr)] lg:px-6 lg:py-6">
-        <aside className="app-sidebar flex flex-col gap-5 rounded-[2.2rem] p-5 lg:sticky lg:top-6 lg:self-start lg:min-h-[calc(100vh-3rem)]">
-          <div className="brand-card">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-bold tracking-[0.22em] text-white/84 uppercase">
-              <Sparkles className="h-3.5 w-3.5" />
-              SmartRead Echo
-            </div>
-            <div className="mt-4">
-              <div className="font-serif-display text-[1.7rem] leading-tight text-white">
-                閱讀控制台
-              </div>
-              <div className="mt-2 text-sm text-white/72">
-                Read. Capture. Recall.
-              </div>
-            </div>
-          </div>
-
-          <div className="sidebar-stats">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-[11px] tracking-[0.22em] text-white/58 uppercase">
-                  Progress
-                </div>
-                <div className="mt-2 text-3xl font-semibold text-white">{inkDrops}</div>
-                <div className="mt-1 text-sm text-white/78">
-                  Lv.{level.level} {level.label}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-white/6 px-3 py-2 text-sm text-white/88">
-                {streakDays} 天
-              </div>
-            </div>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full rounded-full bg-[linear-gradient(90deg,#f8d9a9,#e7ab66,#cf8c4f)]"
-                style={{
-                  width: `${nextLevelConfig ? ((inkDrops - currentLevelConfig.min) / (nextLevelConfig.min - currentLevelConfig.min)) * 100 : 100}%`,
-                }}
-              />
-            </div>
-            <div className="mt-3 text-xs text-white/66">
-              {nextLevelConfig
-                ? `距離 Lv.${nextLevelConfig.level} 還差 ${Math.max(0, nextLevelConfig.min - inkDrops)} 點`
-                : "目前已達最高等級"}
-            </div>
-          </div>
-
-          <nav className="grid gap-3">
-            {sections.map((section) => {
-              const active = section.id === activeSection;
-              return (
-                <button
-                  key={section.id}
-                  className={`sidebar-link ${active ? "sidebar-link-active" : ""}`}
-                  onClick={() => setActiveSection(section.id)}
-                >
-                  <span className="sidebar-icon">{section.icon}</span>
-                  <span className="min-w-0 text-left">
-                    <span className="block text-sm font-semibold text-white">
-                      {section.title}
-                    </span>
-                    <span className="mt-0.5 block text-[11px] tracking-[0.18em] text-white/62 uppercase">
-                      {section.short}
-                    </span>
-                  </span>
-                  <ChevronRight className="ml-auto h-4 w-4 text-white/60" />
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="mt-auto grid grid-cols-2 gap-3 rounded-[1.7rem] border border-white/8 bg-white/3 p-4">
-            <SidebarMetric label="藏書" value={`${books.length}`} />
-            <SidebarMetric label="分鐘" value={`${totalReadingMinutes}`} />
-            <SidebarMetric label="回聲" value={`${dueEchoes.length}`} />
-            <SidebarMetric label="金句" value={`${favoriteNotes.length}`} />
-          </div>
+        <aside className="app-sidebar hidden flex-col gap-5 rounded-[2.2rem] p-5 lg:sticky lg:top-6 lg:flex lg:self-start lg:min-h-[calc(100vh-3rem)]">
+          {renderSidebarContent()}
         </aside>
 
         <section className="flex min-w-0 flex-col gap-5">
           <header className="glass-panel rounded-[2rem] p-5 md:p-6">
             <div className="workspace-header">
               <div>
+                <div className="mb-3 flex lg:hidden">
+                  <button
+                    className="mobile-sidebar-trigger"
+                    onClick={() => setMobileSidebarOpen(true)}
+                  >
+                    <Menu className="h-4 w-4" />
+                    功能選單
+                  </button>
+                </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-[var(--line-soft)] bg-white/72 px-3 py-1 text-xs font-semibold text-[var(--accent-ink)]">
                   {currentSection.icon}
                   {currentSection.short}
@@ -1468,24 +1571,6 @@ function AppShell() {
               </div>
             ) : null}
           </header>
-
-          <div className="grid gap-3 lg:hidden">
-            {sections.map((section) => (
-              <button
-                key={section.id}
-                className={`sidebar-link ${section.id === activeSection ? "sidebar-link-active" : ""}`}
-                onClick={() => setActiveSection(section.id)}
-              >
-                <span className="sidebar-icon">{section.icon}</span>
-                <span className="min-w-0 text-left">
-                  <span className="block text-sm font-semibold">{section.title}</span>
-                  <span className="block text-[11px] tracking-[0.18em] text-[var(--ink-soft)] uppercase">
-                    {section.short}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
 
           {activeSection === "search" ? (
             <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
