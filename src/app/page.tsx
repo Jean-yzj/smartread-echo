@@ -1305,9 +1305,11 @@ function AppShell() {
         throw new Error(payload.message || "google-ocr-failed");
       }
 
+      const ocrText = payload.text;
+
       setNoteForm((current) => ({
         ...current,
-        ocrText: normalizeCapturedText(payload.text),
+        ocrText: normalizeCapturedText(ocrText),
       }));
       setStatus("OCR 完成，請直接選取你要摘錄的段落");
     } catch (error) {
