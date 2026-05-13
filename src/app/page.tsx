@@ -17,14 +17,18 @@ import {
   BookOpen,
   Brain,
   Check,
+  Copy,
   Compass,
   ChevronDown,
   ChevronRight,
   Clock3,
   Download,
+  Expand,
   GitBranch,
+  ImageUp,
   Library,
   Menu,
+  Minus,
   Plus,
   Quote,
   ScanText,
@@ -36,6 +40,7 @@ import {
   Trophy,
   Waves,
   X,
+  ZoomOut,
 } from "lucide-react";
 
 type BookForm = {
@@ -59,6 +64,7 @@ type NoteForm = {
   reflection: string;
   isFavorite: boolean;
   imageDataUrl: string;
+  ocrText: string;
 };
 
 type AppSection =
@@ -368,6 +374,14 @@ function formatDate(dateString: string) {
   }).format(new Date(dateString));
 }
 
+function normalizeCapturedText(value: string) {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
 function computeStreakDays(sessions: Session[]) {
   const uniqueDays = [
     ...new Set(sessions.map((session) => session.startedAt.slice(0, 10))),
@@ -619,6 +633,7 @@ function AppShell() {
     reflection: "",
     isFavorite: false,
     imageDataUrl: "",
+    ocrText: "",
   });
 
   const [status, setStatus] = useState("");
@@ -639,6 +654,9 @@ function AppShell() {
   const [timerSeconds, setTimerSeconds] = useState(FOCUS_MINUTES * 60);
   const [timerRunning, setTimerRunning] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
+  const [selectedOcrText, setSelectedOcrText] = useState("");
+  const [captureFullscreenOpen, setCaptureFullscreenOpen] = useState(false);
+  const [captureZoom, setCaptureZoom] = useState(1);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const noiseRef = useRef<AudioBufferSourceNode | null>(null);
@@ -646,6 +664,8 @@ function AppShell() {
   const shareCardRef = useRef<HTMLDivElement | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const latestSearchIdRef = useRef(0);
+  const inlineTranscriptRef = useRef<HTMLDivElement | null>(null);
+  const fullscreenTranscriptRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -714,6 +734,28 @@ function AppShell() {
       document.body.style.overflow = "";
     };
   }, [mobileSidebarOpen]);
+
+  useEffect(() => {
+    if (!captureFullscreenOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setCaptureFullscreenOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [captureFullscreenOpen]);
 
   useEffect(() => {
     return () => {
@@ -791,6 +833,9 @@ function AppShell() {
   const recentNotes = [...notes].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const recentSessions = sessions.slice(0, 5);
   const conceptGraph = extractConcepts(notes, booksById);
+  const captureBook = booksById[noteForm.bookId];
+  const hasUploadedImage = Boolean(noteForm.imageDataUrl);
+  const hasOcrText = Boolean(noteForm.ocrText.trim());
   const problemRecommendations = useMemo(
     () => buildProblemRecommendations(books, notes, problemQuery),
     [books, notes, problemQuery],
@@ -1136,7 +1181,9 @@ function AppShell() {
       reflection: "",
       isFavorite: false,
       imageDataUrl: "",
+      ocrText: "",
     });
+    resetCaptureWorkspace();
     setBookForm({
       title: "",
       author: "",
@@ -1172,20 +1219,85 @@ function AppShell() {
     );
   }
 
+  function resetCaptureWorkspace() {
+    setSelectedOcrText("");
+    setCaptureZoom(1);
+  }
+
+  function syncSelectedText(container: HTMLDivElement | null) {
+    if (!container) {
+      setSelectedOcrText("");
+      return;
+    }
+
+    const selection = window.getSelection();
+    const selectedText = normalizeCapturedText(selection?.toString() ?? "");
+    const anchorNode = selection?.anchorNode;
+
+    if (
+      !selection ||
+      selection.rangeCount === 0 ||
+      !anchorNode ||
+      !container.contains(anchorNode) ||
+      !selectedText
+    ) {
+      setSelectedOcrText("");
+      return;
+    }
+
+    setSelectedOcrText(selectedText);
+  }
+
+  function applySelectedExcerpt(mode: "replace" | "append") {
+    if (!selectedOcrText) {
+      setStatus("請先在 OCR 文字區選取想摘錄的句子");
+      return;
+    }
+
+    setNoteForm((current) => {
+      const nextRawText =
+        mode === "append" && current.rawText.trim()
+          ? `${current.rawText.trim()}\n\n${selectedOcrText}`
+          : selectedOcrText;
+
+      return {
+        ...current,
+        rawText: nextRawText,
+      };
+    });
+    setStatus(mode === "append" ? "已把選取文字加到摘錄" : "已將選取文字帶入摘錄");
+  }
+
+  async function copySelectedExcerpt() {
+    if (!selectedOcrText) {
+      setStatus("請先選取一段 OCR 文字");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(selectedOcrText);
+      setStatus("已複製選取文字");
+    } catch {
+      setStatus("複製失敗，請稍後再試");
+    }
+  }
+
   async function runOcr(file: File) {
     setStatus("OCR 辨識中，第一次使用會先下載語言模型");
+    resetCaptureWorkspace();
     setNoteForm((current) => ({
       ...current,
       imageDataUrl: URL.createObjectURL(file),
+      ocrText: "",
     }));
 
     try {
       const result = await Tesseract.recognize(file, "chi_tra+eng");
       setNoteForm((current) => ({
         ...current,
-        rawText: result.data.text.trim(),
+        ocrText: normalizeCapturedText(result.data.text),
       }));
-      setStatus("OCR 完成，請先校對文字");
+      setStatus("OCR 完成，請直接選取你要摘錄的段落");
     } catch {
       setStatus("OCR 失敗，你仍然可以手動貼上摘錄");
     }
@@ -1206,6 +1318,7 @@ function AppShell() {
       reflection: noteForm.reflection.trim(),
       isFavorite: noteForm.isFavorite,
       imageDataUrl: noteForm.imageDataUrl,
+      ocrText: noteForm.ocrText,
       createdAt: previous?.createdAt ?? new Date().toISOString(),
     };
 
@@ -1221,8 +1334,10 @@ function AppShell() {
       reflection: "",
       isFavorite: false,
       imageDataUrl: "",
+      ocrText: "",
     }));
     setEditingNoteId(null);
+    resetCaptureWorkspace();
     setStatus(editingNoteId ? "筆記已更新" : "筆記已儲存");
   }
 
@@ -1238,7 +1353,9 @@ function AppShell() {
       reflection: note.reflection,
       isFavorite: note.isFavorite,
       imageDataUrl: note.imageDataUrl ?? "",
+      ocrText: note.ocrText ?? "",
     });
+    resetCaptureWorkspace();
     setStatus("已載入筆記");
   }
 
@@ -2403,37 +2520,157 @@ function AppShell() {
                       />
                     </div>
 
-                    <div className="rounded-[1.5rem] border border-dashed border-[var(--line-strong)] bg-[var(--paper-strong)] p-4">
-                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="capture-studio">
+                      <div className="capture-studio-header">
                         <div>
-                          <div className="text-sm font-semibold">OCR 採集</div>
+                          <div className="text-sm font-semibold text-[var(--ink-strong)]">
+                            OCR 採集工作區
+                          </div>
                           <div className="mt-1 text-sm text-[var(--ink-soft)]">
-                            上傳書頁圖片後，自動帶入摘錄內容。
+                            先看清楚原圖，再從 OCR 文字中只選你要摘錄的句子。
                           </div>
                         </div>
-                        <label className="button-secondary">
-                          上傳圖片
-                          <input
-                            className="hidden"
-                            type="file"
-                            accept="image/*"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              if (file) {
-                                void runOcr(file);
-                              }
-                            }}
-                          />
-                        </label>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {selectedOcrText ? (
+                            <>
+                              <button
+                                className="button-secondary"
+                                onClick={() => applySelectedExcerpt("replace")}
+                              >
+                                <Quote className="h-4 w-4" />
+                                摘錄這段
+                              </button>
+                              <button
+                                className="button-secondary"
+                                onClick={() => applySelectedExcerpt("append")}
+                              >
+                                <Plus className="h-4 w-4" />
+                                附加到摘錄
+                              </button>
+                              <button
+                                className="button-secondary"
+                                onClick={() => void copySelectedExcerpt()}
+                              >
+                                <Copy className="h-4 w-4" />
+                                複製
+                              </button>
+                            </>
+                          ) : null}
+                          <label className="button-secondary">
+                            <ImageUp className="h-4 w-4" />
+                            上傳圖片
+                            <input
+                              className="hidden"
+                              type="file"
+                              accept="image/*"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (file) {
+                                  void runOcr(file);
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
                       </div>
-                      {noteForm.imageDataUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={noteForm.imageDataUrl}
-                          alt="OCR preview"
-                          className="mt-4 h-52 w-full rounded-[1.4rem] object-cover"
-                        />
-                      ) : null}
+
+                      <div className="capture-studio-grid">
+                        <div className="capture-image-panel">
+                          <div className="capture-panel-title">
+                            原始頁面
+                            {hasUploadedImage ? (
+                              <span className="capture-panel-hint">
+                                保留原始解析度，可直接放大閱讀
+                              </span>
+                            ) : null}
+                          </div>
+                          {hasUploadedImage ? (
+                            <>
+                              <button
+                                className="capture-image-frame"
+                                onClick={() => setCaptureFullscreenOpen(true)}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={noteForm.imageDataUrl}
+                                  alt="OCR preview"
+                                  className="capture-image"
+                                />
+                              </button>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  className="button-secondary"
+                                  onClick={() => setCaptureFullscreenOpen(true)}
+                                >
+                                  <Expand className="h-4 w-4" />
+                                  全螢幕檢視
+                                </button>
+                                <div className="capture-inline-note">
+                                  提示：放大看圖、在右側選字，摘錄會只帶入你選到的內容。
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="capture-empty">
+                              <div className="capture-empty-icon">
+                                <ScanText className="h-5 w-5" />
+                              </div>
+                              <div className="font-semibold">先上傳書頁圖片</div>
+                              <div className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
+                                我們會保留高解析預覽，並在 OCR 完成後提供可選取文字。
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="capture-text-panel">
+                          <div className="capture-panel-title">
+                            可選 OCR 文字
+                            {hasOcrText ? (
+                              <span className="capture-panel-hint">
+                                反白後，右上角會出現摘錄操作
+                              </span>
+                            ) : null}
+                          </div>
+                          {hasOcrText ? (
+                            <div
+                              ref={inlineTranscriptRef}
+                              className="capture-transcript"
+                              onMouseUp={() => syncSelectedText(inlineTranscriptRef.current)}
+                              onKeyUp={() => syncSelectedText(inlineTranscriptRef.current)}
+                            >
+                              {noteForm.ocrText}
+                            </div>
+                          ) : (
+                            <div className="capture-empty capture-empty-soft">
+                              <div className="font-semibold">等待 OCR 內容</div>
+                              <div className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
+                                上傳後會在這裡顯示可選取的文字稿，方便直接圈出摘錄。
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="capture-footer-grid">
+                        <div className="capture-selection-card">
+                          <div className="capture-panel-title">目前選取</div>
+                          <div className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">
+                            {selectedOcrText || "尚未選取文字。你可以在右側 OCR 區或全螢幕模式中反白句子。"}
+                          </div>
+                        </div>
+                        <div className="capture-reflection-card">
+                          <TextAreaField
+                            label="隨手心得"
+                            value={noteForm.reflection}
+                            onChange={(value) =>
+                              setNoteForm((current) => ({ ...current, reflection: value }))
+                            }
+                            placeholder="這一段讓你想到什麼？全螢幕模式也會同步這裡。"
+                            rows={3}
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     <TextAreaField
@@ -2486,7 +2723,9 @@ function AppShell() {
                               reflection: "",
                               isFavorite: false,
                               imageDataUrl: "",
+                              ocrText: "",
                             }));
+                            resetCaptureWorkspace();
                             setStatus("已取消編輯");
                           }}
                         >
@@ -2496,6 +2735,131 @@ function AppShell() {
                     </div>
                   </div>
               </Panel>
+
+              {captureFullscreenOpen && hasUploadedImage ? (
+                <div
+                  className="capture-fullscreen-backdrop"
+                  onClick={() => setCaptureFullscreenOpen(false)}
+                >
+                  <div
+                    className="capture-fullscreen-shell"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="capture-fullscreen-topbar">
+                      <div>
+                        <div className="text-xs font-semibold tracking-[0.2em] text-[var(--accent-ink)] uppercase">
+                          Capture Viewer
+                        </div>
+                        <div className="mt-2 text-2xl font-serif-display">
+                          {captureBook?.title ?? "目前書頁"}
+                          {noteForm.page ? ` · 第 ${noteForm.page} 頁` : ""}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {selectedOcrText ? (
+                          <>
+                            <button
+                              className="button-secondary"
+                              onClick={() => applySelectedExcerpt("replace")}
+                            >
+                              <Quote className="h-4 w-4" />
+                              摘錄這段
+                            </button>
+                            <button
+                              className="button-secondary"
+                              onClick={() => applySelectedExcerpt("append")}
+                            >
+                              <Plus className="h-4 w-4" />
+                              附加到摘錄
+                            </button>
+                          </>
+                        ) : null}
+                        <div className="capture-zoom-group">
+                          <button
+                            className="capture-zoom-button"
+                            onClick={() => setCaptureZoom((current) => Math.max(1, current - 0.25))}
+                          >
+                            <Minus className="h-4 w-4" />
+                          </button>
+                          <div className="capture-zoom-readout">
+                            {Math.round(captureZoom * 100)}%
+                          </div>
+                          <button
+                            className="capture-zoom-button"
+                            onClick={() => setCaptureZoom((current) => Math.min(3, current + 0.25))}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <button
+                          className="button-secondary"
+                          onClick={() => setCaptureZoom(1)}
+                        >
+                          <ZoomOut className="h-4 w-4" />
+                          重設
+                        </button>
+                        <button
+                          className="button-secondary"
+                          onClick={() => setCaptureFullscreenOpen(false)}
+                        >
+                          <X className="h-4 w-4" />
+                          關閉
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="capture-fullscreen-grid">
+                      <div className="capture-fullscreen-image-stage">
+                        <div className="capture-fullscreen-image-scroll">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={noteForm.imageDataUrl}
+                            alt="OCR fullscreen preview"
+                            className="capture-fullscreen-image"
+                            style={{ transform: `scale(${captureZoom})` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="capture-fullscreen-sidebar">
+                        <div className="capture-side-card">
+                          <div className="capture-panel-title">
+                            OCR 文字稿
+                            <span className="capture-panel-hint">可直接反白選取</span>
+                          </div>
+                          <div
+                            ref={fullscreenTranscriptRef}
+                            className="capture-transcript capture-transcript-fullscreen"
+                            onMouseUp={() => syncSelectedText(fullscreenTranscriptRef.current)}
+                            onKeyUp={() => syncSelectedText(fullscreenTranscriptRef.current)}
+                          >
+                            {noteForm.ocrText || "OCR 完成後會在這裡顯示完整文字稿。"}
+                          </div>
+                        </div>
+
+                        <div className="capture-side-card">
+                          <div className="capture-panel-title">這次摘錄</div>
+                          <div className="capture-selection-preview">
+                            {noteForm.rawText || "選到文字後按「摘錄這段」，這裡就會只留下你選的內容。"}
+                          </div>
+                        </div>
+
+                        <div className="capture-side-card">
+                          <TextAreaField
+                            label="自己的心得"
+                            value={noteForm.reflection}
+                            onChange={(value) =>
+                              setNoteForm((current) => ({ ...current, reflection: value }))
+                            }
+                            placeholder="邊看邊寫也可以，這裡會同步到底下表單。"
+                            rows={6}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <Panel
                 title="最近筆記"

@@ -28,6 +28,7 @@ export type Note = {
   reflection: string;
   isFavorite: boolean;
   imageDataUrl?: string;
+  ocrText?: string;
   createdAt: string;
 };
 
