@@ -374,11 +374,36 @@ function formatDate(dateString: string) {
 }
 
 function normalizeCapturedText(value: string) {
-  return value
+  const normalized = value
     .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
     .trim();
+
+  const paragraphs = normalized
+    .split(/\n{2,}/)
+    .map((paragraph) =>
+      paragraph
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .reduce((merged, line) => {
+          if (!merged) {
+            return line;
+          }
+
+          const mergeWithoutSpace =
+            /[\u4e00-\u9fff，。、；：？！）】」』%]$/.test(merged) ||
+            /^[\u4e00-\u9fff（【「『]/.test(line);
+
+          const separator = mergeWithoutSpace ? "" : " ";
+          return `${merged}${separator}${line}`;
+        }, ""),
+    )
+    .filter(Boolean);
+
+  return paragraphs.join("\n\n");
 }
 
 function computeStreakDays(sessions: Session[]) {

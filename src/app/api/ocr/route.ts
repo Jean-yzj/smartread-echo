@@ -54,11 +54,36 @@ function extractTextFromCandidate(payload: unknown) {
 }
 
 function normalizeOcrText(value: string) {
-  return value
+  const normalized = value
     .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
     .trim();
+
+  const paragraphs = normalized
+    .split(/\n{2,}/)
+    .map((paragraph) =>
+      paragraph
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .reduce((merged, line) => {
+          if (!merged) {
+            return line;
+          }
+
+          const mergeWithoutSpace =
+            /[\u4e00-\u9fff，。、；：？！）】」』%]$/.test(merged) ||
+            /^[\u4e00-\u9fff（【「『]/.test(line);
+
+          const separator = mergeWithoutSpace ? "" : " ";
+          return `${merged}${separator}${line}`;
+        }, ""),
+    )
+    .filter(Boolean);
+
+  return paragraphs.join("\n\n");
 }
 
 export async function POST(request: Request) {
@@ -99,8 +124,10 @@ export async function POST(request: Request) {
               {
                 text: [
                   "Extract every visible character from this book-page image.",
+                  "If the image is a screenshot of an app UI, prioritize the main book page or photo region and ignore surrounding interface chrome when possible.",
                   "Return only the transcribed text in reading order.",
-                  "Preserve paragraph and line breaks when they are visible.",
+                  "Merge soft line wraps caused by page layout into normal paragraphs.",
+                  "Keep true paragraph breaks, but do not keep every visual line break.",
                   "Do not summarize, translate, explain, or add markdown fences.",
                 ].join(" "),
               },
