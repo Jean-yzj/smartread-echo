@@ -100,6 +100,15 @@ const LOCAL_BOOK_CATALOG: ServerBookResult[] = [
   },
 ];
 
+const SOURCE_TRUST_SCORES: Record<string, number> = {
+  "Google Books": 3.2,
+  "博客來": 3.4,
+  "金石堂": 3.4,
+  "三民網路書店": 3.5,
+  "Open Library": 1.6,
+  "SmartRead 推薦書庫": 1.4,
+};
+
 function normalizeKeyword(value: string) {
   return value.toLowerCase().replace(/[\s:：\-_/.,()（）]/g, "");
 }
@@ -144,6 +153,166 @@ function normalizeBookResult(result: ServerBookResult): ServerBookResult {
   };
 }
 
+function getSourceTrustScore(source?: string) {
+  return SOURCE_TRUST_SCORES[source ?? ""] ?? 1;
+}
+
+function normalizePageCountValue(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  const normalized = Math.round(value);
+  if (normalized < 40 || normalized > 2400) {
+    return 0;
+  }
+
+  return normalized;
+}
+
+function stripTrailingPageNumber(line: string) {
+  return line
+    .replace(/\s*[·•‧・\-–—]?\s*\d{1,4}\s*$/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 4200,
+) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function parseJsonLdBlocks($: cheerio.CheerioAPI) {
+  const scripts = $('script[type="application/ld+json"]')
+    .toArray()
+    .map((node) => $(node).contents().text().trim())
+    .filter(Boolean);
+
+  const parsed: Array<Record<string, unknown>> = [];
+
+  for (const script of scripts) {
+    try {
+      const data = JSON.parse(script) as unknown;
+      const values = Array.isArray(data)
+        ? data
+        : typeof data === "object" && data && "@graph" in data
+          ? ((data as { "@graph"?: unknown[] })["@graph"] ?? [])
+          : [data];
+
+      for (const value of values) {
+        if (value && typeof value === "object") {
+          parsed.push(value as Record<string, unknown>);
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return parsed;
+}
+
+function extractJsonLdBookMeta($: cheerio.CheerioAPI) {
+  const blocks = parseJsonLdBlocks($);
+  const bookLike = blocks.find((entry) => {
+    const type = entry["@type"];
+    const types = Array.isArray(type) ? type : [type];
+    return types.some((item) =>
+      typeof item === "string" && /book|product/i.test(item),
+    );
+  });
+
+  if (!bookLike) {
+    return null;
+  }
+
+  const author = (() => {
+    const value = bookLike.author;
+    if (typeof value === "string") {
+      return value.trim();
+    }
+    if (Array.isArray(value)) {
+      return value
+        .map((item) =>
+          typeof item === "string"
+            ? item
+            : typeof item === "object" && item && "name" in item
+              ? String((item as { name?: unknown }).name ?? "").trim()
+              : "",
+        )
+        .filter(Boolean)
+        .join(", ");
+    }
+    if (value && typeof value === "object" && "name" in value) {
+      return String((value as { name?: unknown }).name ?? "").trim();
+    }
+    return "";
+  })();
+
+  const publisher = (() => {
+    const value = bookLike.publisher;
+    if (typeof value === "string") {
+      return value.trim();
+    }
+    if (Array.isArray(value)) {
+      return value
+        .map((item) =>
+          typeof item === "string"
+            ? item
+            : typeof item === "object" && item && "name" in item
+              ? String((item as { name?: unknown }).name ?? "").trim()
+              : "",
+        )
+        .find(Boolean) ?? "";
+    }
+    if (value && typeof value === "object" && "name" in value) {
+      return String((value as { name?: unknown }).name ?? "").trim();
+    }
+    return "";
+  })();
+
+  const image = (() => {
+    const value = bookLike.image;
+    if (typeof value === "string") {
+      return value.trim();
+    }
+    if (Array.isArray(value)) {
+      return value.find((item): item is string => typeof item === "string") ?? "";
+    }
+    return "";
+  })();
+
+  const pageCountCandidate =
+    bookLike.numberOfPages ??
+    bookLike.pageCount ??
+    bookLike.numberOfPagesTotal ??
+    "";
+
+  return {
+    title: typeof bookLike.name === "string" ? bookLike.name.trim() : "",
+    author,
+    publisher,
+    isbn: typeof bookLike.isbn === "string" ? bookLike.isbn.trim() : "",
+    description:
+      typeof bookLike.description === "string" ? bookLike.description.trim() : "",
+    coverImage: image,
+    totalPages: normalizePageCountValue(Number(pageCountCandidate)),
+  };
+}
+
 export function dedupeBookResults(results: ServerBookResult[]) {
   const seen = new Set<string>();
   return results.filter((result) => {
@@ -170,7 +339,7 @@ export function searchLocalCatalog(keyword: string) {
 }
 
 export async function fetchGoogleCandidates(keyword: string) {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(keyword)}&orderBy=relevance&printType=books&maxResults=8`,
     {
       headers: {
@@ -178,6 +347,7 @@ export async function fetchGoogleCandidates(keyword: string) {
       },
       next: { revalidate: 3600 },
     },
+    3200,
   );
 
   if (!response.ok) {
@@ -223,7 +393,7 @@ export async function fetchGoogleCandidates(keyword: string) {
 }
 
 export async function fetchOpenLibraryCandidates(keyword: string) {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://openlibrary.org/search.json?q=${encodeURIComponent(keyword)}&limit=8`,
     {
       headers: {
@@ -231,6 +401,7 @@ export async function fetchOpenLibraryCandidates(keyword: string) {
       },
       next: { revalidate: 3600 },
     },
+    3200,
   );
 
   if (!response.ok) {
@@ -304,42 +475,70 @@ export function scoreBookMatch(
 }
 
 export function chooseVerifiedPageCount(candidates: ServerBookResult[]) {
-  const pageCounts = candidates
-    .map((item) => item.totalPages)
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .sort((a, b) => a - b);
+  const validCandidates = candidates
+    .map((item) => ({
+      count: normalizePageCountValue(item.totalPages),
+      trust: getSourceTrustScore(item.source),
+    }))
+    .filter((item) => item.count > 0);
 
-  if (!pageCounts.length) {
+  if (!validCandidates.length) {
     return 0;
   }
 
-  const smallest = pageCounts[0];
-  const largest = pageCounts[pageCounts.length - 1];
+  const counts = validCandidates.map((item) => item.count).sort((a, b) => a - b);
+  const smallest = counts[0];
+  const largest = counts[counts.length - 1];
+  const substantialCandidates = validCandidates.filter((item) => item.count >= 150);
+  const hasClearlyTinyOutlier =
+    smallest < 120 &&
+    largest >= 180 &&
+    largest / Math.max(smallest, 1) >= 1.7 &&
+    substantialCandidates.length >= Math.ceil(validCandidates.length / 2);
 
-  if (smallest < 120 && largest >= 180 && largest / Math.max(smallest, 1) >= 1.7) {
-    return largest;
-  }
+  const pool = hasClearlyTinyOutlier ? substantialCandidates : validCandidates;
+  const clustered = pool.map((current) => {
+    const support = pool.reduce((sum, candidate) => {
+      const tolerance = Math.max(18, Math.round(current.count * 0.08));
+      return Math.abs(candidate.count - current.count) <= tolerance
+        ? sum + candidate.trust
+        : sum;
+    }, 0);
 
-  const middle = Math.floor(pageCounts.length / 2);
-  return pageCounts.length % 2 === 1
-    ? pageCounts[middle]
-    : Math.round((pageCounts[middle - 1] + pageCounts[middle]) / 2);
+    return {
+      ...current,
+      support,
+    };
+  });
+
+  const best = clustered.sort((a, b) => {
+    if (b.support !== a.support) {
+      return b.support - a.support;
+    }
+    if (b.trust !== a.trust) {
+      return b.trust - a.trust;
+    }
+    return b.count - a.count;
+  })[0];
+
+  return best?.count ?? 0;
 }
 
 function normalizeCatalogLines(lines: string[]) {
   const cleaned = lines
-    .map((line) => line.replace(/^[\s\-•●◆■□▪︎‧・]+/, "").trim())
+    .map((line) => stripTrailingPageNumber(line.replace(/^[\s\-•●◆■□▪︎‧・]+/, "").trim()))
     .filter(Boolean)
     .filter((line) => line.length >= 2 && line.length <= 80)
     .filter(
       (line) =>
-        !/頁|isbn|作者|出版社|裝訂|電話|客服|營業時間|網路書店|台北市|聯絡資訊|圖書目錄|聚焦三民|小山丘|東大|弘雅|>>/.test(
+        !/^(目錄|目次|contents?)$/i.test(line) &&
+        !/頁|isbn|作者|出版社|裝訂|電話|客服|營業時間|網路書店|台北市|聯絡資訊|圖書目錄|聚焦三民|小山丘|東大|弘雅|回首頁|購物車|快速結帳|更多內容|版權|出版資訊|推薦商品|延伸閱讀|最新消息|會員中心|>>/.test(
           line.toLowerCase(),
         ),
     );
 
   const chapterLikeLines = cleaned.filter((line) =>
-    /^(第[\d一二三四五六七八九十百零]+[章回節部篇]|chapter|part|序|前言|後記|楔子|附錄|導論|[0-9一二三四五六七八九十]+[、.．)].+|[•●◆■□▪︎‧・]\s*.+)/i.test(
+    /^(第[\d一二三四五六七八九十百零兩]+[章回節部篇冊]|chapter|part|序|自序|推薦序|導讀|前言|後記|楔子|附錄|導論|結語|索引|[0-9]{1,2}[、.．)].+|[0-9]{1,2}\s+.+|[一二三四五六七八九十]{1,3}[、.．)].+|[•●◆■□▪︎‧・]\s*.+)/i.test(
       line,
     ),
   );
@@ -393,13 +592,13 @@ export function extractCatalogFromText(text: string) {
 }
 
 async function fetchHtml(url: string) {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       "user-agent": "Mozilla/5.0 SmartReadEcho/1.0",
       "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
     },
     next: { revalidate: 3600 },
-  });
+  }, 4200);
 
   if (!response.ok) {
     throw new Error(`fetch-${response.status}`);
@@ -421,21 +620,34 @@ function pickText($: cheerio.CheerioAPI, selectors: string[]) {
 export function parseBooksComProduct(html: string, url: string): ServerBookResult | null {
   const $ = cheerio.load(html);
   const bodyText = $("body").text();
+  const jsonLd = extractJsonLdBookMeta($);
   const title =
     $('meta[property="og:title"]').attr("content")?.replace(/^博客來-/, "").trim() ||
+    jsonLd?.title ||
     pickText($, ["h1"]);
   if (!title) {
     return null;
   }
 
-  const author = bodyText.match(/作者[：:\s]+([^\n]{1,40})/)?.[1]?.trim() ?? "";
-  const publisher = bodyText.match(/出版社[：:\s]+([^\n]{1,40})/)?.[1]?.trim() ?? "";
+  const author =
+    jsonLd?.author ??
+    bodyText.match(/作者[：:\s]+([^\n]{1,40})/)?.[1]?.trim() ??
+    "";
+  const publisher =
+    jsonLd?.publisher ??
+    bodyText.match(/出版社[：:\s]+([^\n]{1,40})/)?.[1]?.trim() ??
+    "";
   const pageMatch = bodyText.match(/(?:平裝|精裝|軟精裝)\s*\/\s*(\d+)\s*頁/);
-  const isbn = bodyText.match(/ISBN[：:\s]+([0-9Xx-]{10,20})/)?.[1]?.trim() ?? "";
+  const isbn =
+    jsonLd?.isbn ??
+    bodyText.match(/ISBN[：:\s]+([0-9Xx-]{10,20})/)?.[1]?.trim() ??
+    "";
   const description =
+    jsonLd?.description ||
     $('meta[name="description"]').attr("content")?.trim() ||
     pickText($, [".mod_b.type02_m058 .bd", ".content", "#summary"]);
   const coverImage =
+    jsonLd?.coverImage ||
     $('meta[property="og:image"]').attr("content")?.trim() || "";
 
   return normalizeBookResult({
@@ -443,7 +655,7 @@ export function parseBooksComProduct(html: string, url: string): ServerBookResul
     author,
     category: "",
     isbn,
-    totalPages: Number(pageMatch?.[1] ?? 0),
+    totalPages: normalizePageCountValue(jsonLd?.totalPages || Number(pageMatch?.[1] ?? 0)),
     description,
     coverImage,
     publisher,
@@ -455,11 +667,13 @@ export function parseBooksComProduct(html: string, url: string): ServerBookResul
 
 export function parseKingstoneProduct(html: string, url: string): ServerBookResult | null {
   const $ = cheerio.load(html);
+  const jsonLd = extractJsonLdBookMeta($);
   const metaDescription =
     $('meta[name="description"]').attr("content")?.trim() || "";
   const bodyText = $("body").text();
   const title =
     $('meta[property="og:title"]').attr("content")?.replace(/\s*－金石堂$/, "").trim() ||
+    jsonLd?.title ||
     pickText($, ["h1"]);
 
   if (!title) {
@@ -467,20 +681,27 @@ export function parseKingstoneProduct(html: string, url: string): ServerBookResu
   }
 
   const author =
+    jsonLd?.author ||
     metaDescription.match(/作者:\s*([^|]+)/)?.[1]?.trim() ||
     pickText($, [".basic2box .author", ".author"]) ||
     "";
   const publisher =
+    jsonLd?.publisher ||
     metaDescription.match(/\|\s*([^|]+?)\s+\d{4}\/\d{2}\/\d{2}出版/)?.[1]?.trim() ||
     pickText($, [".title_basic:contains('出版社') + a", ".publish a"]) ||
     "";
   const isbn =
+    jsonLd?.isbn ||
     metaDescription.match(/ISBN:\s*([0-9Xx-]{10,20})/)?.[1]?.trim() ||
     bodyText.match(/ISBN[：:\s]+([0-9Xx-]{10,20})/)?.[1]?.trim() ||
     "";
   const coverImage =
+    jsonLd?.coverImage ||
     $('meta[property="og:image"]').attr("content")?.trim() || "";
-  const description = pickText($, [".pdintro_txt1field", ".panelCon", ".content_pcoll"]) || metaDescription;
+  const description =
+    jsonLd?.description ||
+    pickText($, [".pdintro_txt1field", ".panelCon", ".content_pcoll"]) ||
+    metaDescription;
   const catalogHtml = $(".catalogfield").first().html()?.trim() ?? "";
   const catalogEntries = extractCatalogEntries(catalogHtml);
   const parsedCatalog = catalogEntries.length
@@ -492,7 +713,9 @@ export function parseKingstoneProduct(html: string, url: string): ServerBookResu
     author: author.replace(/\s*著$/, "").trim(),
     category: "",
     isbn,
-    totalPages: Number(bodyText.match(/頁數[：:\s]+(\d+)/)?.[1] ?? 0),
+    totalPages: normalizePageCountValue(
+      jsonLd?.totalPages || Number(bodyText.match(/頁數[：:\s]+(\d+)/)?.[1] ?? 0),
+    ),
     description,
     coverImage,
     publisher,
@@ -504,21 +727,25 @@ export function parseKingstoneProduct(html: string, url: string): ServerBookResu
 
 export function parseSanminProduct(html: string, url: string): ServerBookResult | null {
   const $ = cheerio.load(html);
+  const jsonLd = extractJsonLdBookMeta($);
   const bodyText = $("body").text();
   const metaDescription =
     $('meta[name="description"]').attr("content")?.trim() || "";
   const title =
     $('meta[property="og:title"]').attr("content")?.replace(/\s*-\s*三民網路書店$/, "").trim() ||
+    jsonLd?.title ||
     pickText($, ["h1"]);
   if (!title) {
     return null;
   }
 
   const author =
+    jsonLd?.author ||
     metaDescription.match(/作者：([^，]+)/)?.[1]?.trim() ||
     bodyText.match(/作者[：:\s]+([^\n]{1,60})/)?.[1]?.trim() ||
     "";
   const publisher =
+    jsonLd?.publisher ||
     metaDescription.match(/出版社：([^，]+)/)?.[1]?.trim() ||
     bodyText.match(/出版社[：:\s]+([^\n]{1,40})/)?.[1]?.trim() ||
     "";
@@ -526,13 +753,16 @@ export function parseSanminProduct(html: string, url: string): ServerBookResult 
     metaDescription.match(/頁數：(\d+)/) ||
     bodyText.match(/裝訂／頁數[：:\s]+[^／\n]{0,20}／\s*(\d+)\s*頁/);
   const isbn =
+    jsonLd?.isbn ||
     metaDescription.match(/ISBN：([0-9Xx-]{10,20})/)?.[1]?.trim() ||
     bodyText.match(/ISBN13?[：:\s]+([0-9Xx-]{10,20})/)?.[1]?.trim() ||
     "";
   const description =
+    jsonLd?.description ||
     metaDescription ||
     pickText($, [".Introduction", ".ProdDesc", ".editor"]);
   const coverImage =
+    jsonLd?.coverImage ||
     $('meta[property="og:image"]').attr("content")?.trim() || "";
 
   const detailText = pickText($, [
@@ -548,7 +778,7 @@ export function parseSanminProduct(html: string, url: string): ServerBookResult 
     author,
     category: "",
     isbn,
-    totalPages: Number(pageMatch?.[1] ?? 0),
+    totalPages: normalizePageCountValue(jsonLd?.totalPages || Number(pageMatch?.[1] ?? 0)),
     description,
     coverImage,
     publisher,
@@ -574,8 +804,10 @@ export async function scrapeProductPage(url: string) {
   }
 
   const $ = cheerio.load(html);
+  const jsonLd = extractJsonLdBookMeta($);
   const bodyText = $("body").text();
   const title =
+    jsonLd?.title ||
     $('meta[property="og:title"]').attr("content")?.trim() ||
     pickText($, ["h1", "title"]);
 
@@ -584,21 +816,29 @@ export async function scrapeProductPage(url: string) {
   }
 
   const description =
+    jsonLd?.description ||
     $('meta[name="description"]').attr("content")?.trim() ||
     $('meta[property="og:description"]').attr("content")?.trim() ||
     "";
   const coverImage =
+    jsonLd?.coverImage ||
     $('meta[property="og:image"]').attr("content")?.trim() || "";
   const pageMatch = bodyText.match(/(\d+)\s*頁/);
-  const publisher = bodyText.match(/出版社[：:\s]+([^\n]{1,40})/)?.[1]?.trim() ?? "";
-  const isbn = bodyText.match(/ISBN(?:13)?[：:\s]+([0-9Xx-]{10,20})/)?.[1]?.trim() ?? "";
+  const publisher =
+    jsonLd?.publisher ??
+    bodyText.match(/出版社[：:\s]+([^\n]{1,40})/)?.[1]?.trim() ??
+    "";
+  const isbn =
+    jsonLd?.isbn ??
+    bodyText.match(/ISBN(?:13)?[：:\s]+([0-9Xx-]{10,20})/)?.[1]?.trim() ??
+    "";
 
   return normalizeBookResult({
     title,
-    author: "",
+    author: jsonLd?.author || "",
     category: "",
     isbn,
-    totalPages: Number(pageMatch?.[1] ?? 0),
+    totalPages: normalizePageCountValue(jsonLd?.totalPages || Number(pageMatch?.[1] ?? 0)),
     description,
     coverImage,
     publisher,
