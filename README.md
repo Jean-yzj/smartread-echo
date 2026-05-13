@@ -7,7 +7,7 @@ SmartRead Echo is a one-day MVP for a private reading retention platform. It tur
 - title-first book search with server-side metadata calibration
 - multi-source metadata correction for page count, publisher, and ISBN
 - publisher/retailer catalog extraction flow for owned books
-- private OCR note capture with `tesseract.js`
+- private OCR note capture through Google Vertex AI
 - reflection-first note storage
 - Echo review cards on 1 / 7 / 30 day intervals
 - focus timer with browser-generated white noise
@@ -21,7 +21,7 @@ SmartRead Echo is a one-day MVP for a private reading retention platform. It tur
 - TypeScript
 - Tailwind CSS 4
 - `cheerio` for server-side metadata scraping
-- `tesseract.js` for in-browser OCR
+- Google Vertex AI Gemini for server-side OCR
 - `lucide-react` for icons
 
 ## Product decisions
@@ -70,6 +70,38 @@ This project is compatible with Zeabur as a standard Next.js application.
 ## Suggested next steps
 
 1. Replace `localStorage` with Supabase Auth + Postgres + Storage.
-2. Move OCR and AI calls behind server routes or edge functions.
-3. Add push notifications for real Echo reminders.
-4. Add PNG export for social cards and Notion sync for level 4 users.
+2. Add push notifications for real Echo reminders.
+3. Add PNG export for social cards and Notion sync for level 4 users.
+
+## Google OCR setup
+
+SmartRead Echo now sends uploaded note images to `POST /api/ocr`, which calls
+Google Vertex AI Gemini server-side and returns plain extracted text.
+
+Required environment variables:
+
+```bash
+GOOGLE_CLOUD_PROJECT_ID=your-project-id
+GOOGLE_CLOUD_LOCATION=global
+GOOGLE_VERTEX_MODEL=gemini-3.1-flash-lite
+```
+
+Authentication, choose one:
+
+```bash
+GOOGLE_VERTEX_API_KEY=your-vertex-api-key
+```
+
+or
+
+```bash
+GOOGLE_VERTEX_ACCESS_TOKEN=your-oauth-access-token
+```
+
+Notes:
+
+- The Vertex AI official image-text sample was last updated on 2026-05-08.
+- This implementation sends the image plus a strict "return only transcribed text"
+  prompt to Gemini, then stores the returned text as OCR content.
+- `GOOGLE_VERTEX_ACCESS_TOKEN` is best for short-lived local testing only. For a
+  deployed app, prefer a stable server-side auth setup or rotate secrets often.

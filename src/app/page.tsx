@@ -2,7 +2,6 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
-import Tesseract from "tesseract.js";
 import {
   migratePersistedState,
   STORAGE_VERSION,
@@ -1283,7 +1282,7 @@ function AppShell() {
   }
 
   async function runOcr(file: File) {
-    setStatus("OCR 辨識中，第一次使用會先下載語言模型");
+    setStatus("Google OCR 辨識中，正在送出圖片");
     resetCaptureWorkspace();
     setNoteForm((current) => ({
       ...current,
@@ -1292,14 +1291,31 @@ function AppShell() {
     }));
 
     try {
-      const result = await Tesseract.recognize(file, "chi_tra+eng");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/ocr", {
+        method: "POST",
+        body: formData,
+      });
+
+      const payload = (await response.json()) as { message?: string; text?: string };
+
+      if (!response.ok || !payload.text) {
+        throw new Error(payload.message || "google-ocr-failed");
+      }
+
       setNoteForm((current) => ({
         ...current,
-        ocrText: normalizeCapturedText(result.data.text),
+        ocrText: normalizeCapturedText(payload.text),
       }));
       setStatus("OCR 完成，請直接選取你要摘錄的段落");
-    } catch {
-      setStatus("OCR 失敗，你仍然可以手動貼上摘錄");
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Google OCR 失敗，你仍然可以手動貼上摘錄";
+      setStatus(message);
     }
   }
 
